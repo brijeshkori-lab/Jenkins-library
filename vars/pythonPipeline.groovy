@@ -1,4 +1,4 @@
-def call() {
+def call(String jfrogRepo = 'python-local') {
 
     stage('Checkout') {
         checkout scm
@@ -28,4 +28,20 @@ def call() {
         '''
     }
 
+    stage('Publish to JFrog') {
+        withCredentials([
+            string(credentialsId: 'jfrog-user', variable: 'JFROG_USER'),
+            string(credentialsId: 'jfrog-token', variable: 'JFROG_TOKEN')
+        ]) {
+            sh """
+                . venv/bin/activate
+
+                python -m twine upload \
+                  --repository-url "https://trialn4vk2g.jfrog.io/artifactory/api/pypi/${jfrogRepo}" \
+                  -u "\$JFROG_USER" \
+                  -p "\$JFROG_TOKEN" \
+                  dist/*
+            """
+        }
+    }
 }
