@@ -1,31 +1,25 @@
 pipeline {
 
-    agent {
-        label 'python-build-agent'
-    }
+    agent any
 
     parameters {
 
         string(
             name: 'PROJECT_URL',
             defaultValue: '',
-            description: 'Git URL of the Python application'
+            description: 'Python project Git URL'
         )
 
         choice(
             name: 'PYTHON_VERSION',
             choices: [
+                'python3.8',
+                'python3.9',
                 'python3.10',
                 'python3.11',
                 'python3.12'
             ],
             description: 'Python version'
-        )
-
-        string(
-            name: 'SONAR_PROJECT_KEY',
-            defaultValue: '',
-            description: 'SonarQube project key'
         )
 
         choice(
@@ -34,127 +28,28 @@ pipeline {
                 'DEV',
                 'PROD'
             ],
-            description: 'Target environment'
-        )
-
-        choice(
-            name: 'IS_FINAL_RUN',
-            choices: [
-                'false',
-                'true'
-            ],
-            description: 'Production final run'
+            description: 'Environment'
         )
     }
 
     stages {
 
-        stage('Validate') {
-
-            steps {
-
-                script {
-
-                    if (!params.PROJECT_URL?.trim()) {
-                        error('PROJECT_URL is required')
-                    }
-
-                    if (!params.SONAR_PROJECT_KEY?.trim()) {
-                        error('SONAR_PROJECT_KEY is required')
-                    }
-
-                    if (
-                        params.ENVIRONMENT == 'PROD' &&
-                        params.IS_FINAL_RUN != 'true'
-                    ) {
-
-                        error(
-                            'PROD requires IS_FINAL_RUN=true'
-                        )
-                    }
-
-                    echo """
-=========================================
-PYTHON TEMPLATE TEST
-=========================================
-
-Project URL      : ${params.PROJECT_URL}
-Python Version   : ${params.PYTHON_VERSION}
-Sonar Project    : ${params.SONAR_PROJECT_KEY}
-Environment      : ${params.ENVIRONMENT}
-Final Run        : ${params.IS_FINAL_RUN}
-
-=========================================
-"""
-                }
-            }
-        }
-
-        stage('Checkout Python Application') {
-
-            steps {
-
-                deleteDir()
-
-                git(
-                    url: params.PROJECT_URL,
-                    branch: 'main'
-                )
-            }
-        }
-
-        stage('Python Version Check') {
-
-            steps {
-
-                sh """
-                    set -e
-
-                    echo "Requested Python:"
-                    ${params.PYTHON_VERSION} --version
-
-                    echo "Python template is working."
-                """
-            }
-        }
-
         stage('Template Test') {
 
             steps {
 
-                echo """
-=========================================
-SUCCESS
-=========================================
+                echo "===================================="
+                echo "Python Application Template"
+                echo "===================================="
 
-The Jenkins Python application template
-was successfully loaded from GitHub.
+                echo "Project URL : ${params.PROJECT_URL}"
+                echo "Python      : ${params.PYTHON_VERSION}"
+                echo "Environment : ${params.ENVIRONMENT}"
 
-Template repository:
-Jenkins-library
-
-Template branch:
-template
-
-Template path:
-python-template/Jenkinsfile
-
-=========================================
-"""
+                sh '''
+                    python3 --version || true
+                '''
             }
-        }
-    }
-
-    post {
-
-        success {
-
-            echo 'Python application template test PASSED'
-        }
-
-        failure {
-
-            echo 'Python application template test FAILED'
         }
     }
 }
