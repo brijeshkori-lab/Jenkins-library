@@ -506,39 +506,33 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
 
         stage('Test') {
 
-            steps {
+    steps {
 
-                sh '''
-                    set -e
+        sh '''
+            set -e
 
-                    echo "======================================"
-                    echo "RUNNING PYTHON TESTS"
-                    echo "======================================"
+            echo "======================================"
+            echo "RUNNING PYTHON TESTS"
+            echo "======================================"
 
-                    . "${VENV_DIR}/bin/activate"
+            . "${VENV_DIR}/bin/activate"
 
-                    echo "Python version:"
-                    python --version
+            export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
-                    export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
+            python --version
+            python -m pytest --version
 
-                    echo "PYTHONPATH=${PYTHONPATH}"
+            echo "Running:"
+            echo "${TEST_COMMAND}"
 
-                    echo "======================================"
-                    echo "TEST COMMAND"
-                    echo "======================================"
+            ${TEST_COMMAND}
 
-                    echo "${TEST_COMMAND}"
-
-                    ${TEST_COMMAND}
-
-                    echo "======================================"
-                    echo "PYTHON TESTS PASSED"
-                    echo "======================================"
-                '''
-            }
-        }
-
+            echo "======================================"
+            echo "PYTHON TESTS PASSED"
+            echo "======================================"
+        '''
+    }
+}
 
         // =====================================================
         // 8. SONARQUBE SCAN
