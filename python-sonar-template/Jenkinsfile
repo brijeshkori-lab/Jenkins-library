@@ -261,7 +261,7 @@ Test Command     : ${params.TEST_COMMAND}
 
                 script {
 
-                    def scannerHome = tool 'sonar-scanner'
+                    def scannerHome = tool 'SonarQubeLocal'
 
                     withCredentials([
                         string(
