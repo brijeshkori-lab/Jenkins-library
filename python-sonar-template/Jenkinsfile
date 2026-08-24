@@ -117,7 +117,7 @@ pipeline {
 
         SONAR_SERVER = 'SonarQubeLocal'
 
-        SONAR_TOKEN_CREDENTIAL = 'jenkins-ci'
+        SONAR_TOKEN_CREDENTIAL = 'sonar-token'
 
 
         // =====================================================
