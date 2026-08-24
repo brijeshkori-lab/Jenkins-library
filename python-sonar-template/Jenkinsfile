@@ -1,8 +1,6 @@
 pipeline {
 
-    agent {
-        any
-    }
+    agent any
 
     parameters {
 
@@ -67,12 +65,6 @@ pipeline {
 
     stages {
 
-        /*
-         * =========================================================
-         * VALIDATE PARAMETERS
-         * =========================================================
-         */
-
         stage('Validate Parameters') {
 
             steps {
@@ -80,39 +72,33 @@ pipeline {
                 script {
 
                     if (!params.GIT_URL?.trim()) {
-                        error 'GIT_URL is required.'
+                        error('GIT_URL is required.')
                     }
 
                     if (!params.SONAR_PROJECT_KEY?.trim()) {
-                        error 'SONAR_PROJECT_KEY is required.'
+                        error('SONAR_PROJECT_KEY is required.')
                     }
 
                     if (!params.SONAR_PROJECT_NAME?.trim()) {
-                        error 'SONAR_PROJECT_NAME is required.'
+                        error('SONAR_PROJECT_NAME is required.')
                     }
 
-                    echo '''
+                    echo """
 ====================================================
 PYTHON APPLICATION TEMPLATE
 ====================================================
-Git URL          : ${GIT_URL}
-Git Branch       : ${GIT_BRANCH}
-Python Version   : ${PYTHON_VERSION}
-Sonar Project    : ${SONAR_PROJECT_KEY}
-Requirements     : ${REQUIREMENTS_FILE}
-Test Command     : ${TEST_COMMAND}
+Git URL          : ${params.GIT_URL}
+Git Branch       : ${params.GIT_BRANCH}
+Python Version   : ${params.PYTHON_VERSION}
+Sonar Project    : ${params.SONAR_PROJECT_KEY}
+Requirements     : ${params.REQUIREMENTS_FILE}
+Test Command     : ${params.TEST_COMMAND}
 ====================================================
-'''
+"""
                 }
             }
         }
 
-
-        /*
-         * =========================================================
-         * CHECK PYTHON
-         * =========================================================
-         */
 
         stage('Check Python') {
 
@@ -135,12 +121,6 @@ Test Command     : ${TEST_COMMAND}
         }
 
 
-        /*
-         * =========================================================
-         * CHECKOUT
-         * =========================================================
-         */
-
         stage('Checkout') {
 
             steps {
@@ -155,12 +135,6 @@ Test Command     : ${TEST_COMMAND}
             }
         }
 
-
-        /*
-         * =========================================================
-         * CREATE VIRTUAL ENVIRONMENT
-         * =========================================================
-         */
 
         stage('Create Virtual Environment') {
 
@@ -187,12 +161,6 @@ Test Command     : ${TEST_COMMAND}
         }
 
 
-        /*
-         * =========================================================
-         * INSTALL DEPENDENCIES
-         * =========================================================
-         */
-
         stage('Install Dependencies') {
 
             steps {
@@ -215,7 +183,6 @@ Test Command     : ${TEST_COMMAND}
                     else
 
                         echo "No ${REQUIREMENTS_FILE} found."
-
                         echo "Skipping dependency installation."
 
                     fi
@@ -225,12 +192,6 @@ Test Command     : ${TEST_COMMAND}
             }
         }
 
-
-        /*
-         * =========================================================
-         * TEST
-         * =========================================================
-         */
 
         stage('Test') {
 
@@ -253,8 +214,6 @@ Test Command     : ${TEST_COMMAND}
 
                         echo "pytest is not installed."
 
-                        echo "Checking whether tests directory exists..."
-
                         if [ -d tests ]; then
 
                             echo "ERROR: tests directory exists but pytest is not installed."
@@ -264,7 +223,6 @@ Test Command     : ${TEST_COMMAND}
                         else
 
                             echo "No tests directory found."
-
                             echo "Skipping tests."
 
                         fi
@@ -275,12 +233,6 @@ Test Command     : ${TEST_COMMAND}
             }
         }
 
-
-        /*
-         * =========================================================
-         * SONARQUBE SCAN
-         * =========================================================
-         */
 
         stage('SonarQube Scan') {
 
@@ -306,13 +258,12 @@ Test Command     : ${TEST_COMMAND}
                                 echo "SONARQUBE ANALYSIS"
                                 echo "======================================"
 
-                                ${scannerHome}/bin/sonar-scanner \
-                                    -Dsonar.projectKey="${params.SONAR_PROJECT_KEY}" \
-                                    -Dsonar.projectName="${params.SONAR_PROJECT_NAME}" \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.sourceEncoding=UTF-8 \
-                                    -Dsonar.python.version="${params.PYTHON_VERSION.replace('python3.', '')}" \
-                                    -Dsonar.exclusions="**/.venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**" \
+                                ${scannerHome}/bin/sonar-scanner \\
+                                    -Dsonar.projectKey="${params.SONAR_PROJECT_KEY}" \\
+                                    -Dsonar.projectName="${params.SONAR_PROJECT_NAME}" \\
+                                    -Dsonar.sources=. \\
+                                    -Dsonar.sourceEncoding=UTF-8 \\
+                                    -Dsonar.exclusions="**/.venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**" \\
                                     -Dsonar.token="\${SONAR_TOKEN}"
 
                                 echo "SonarQube scan completed."
@@ -323,12 +274,6 @@ Test Command     : ${TEST_COMMAND}
             }
         }
 
-
-        /*
-         * =========================================================
-         * SONARQUBE QUALITY GATE
-         * =========================================================
-         */
 
         stage('SonarQube Quality Gate') {
 
@@ -365,12 +310,6 @@ Test Command     : ${TEST_COMMAND}
         }
     }
 
-
-    /*
-     * =============================================================
-     * POST ACTIONS
-     * =============================================================
-     */
 
     post {
 
