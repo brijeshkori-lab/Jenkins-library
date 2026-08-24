@@ -193,45 +193,66 @@ Test Command     : ${params.TEST_COMMAND}
         }
 
 
-        stage('Test') {
+       stage('Test') {
 
-            steps {
+    steps {
 
-                sh '''
-                    set -e
+        sh '''
+            set -eux
 
-                    echo "======================================"
-                    echo "RUNNING PYTHON TESTS"
-                    echo "======================================"
+            echo "======================================"
+            echo "RUNNING PYTHON TESTS"
+            echo "======================================"
 
-                    . "${VENV_DIR}/bin/activate"
+            . "${VENV_DIR}/bin/activate"
 
-                    if command -v pytest >/dev/null 2>&1; then
+            echo "Current directory:"
+            pwd
 
-                        ${TEST_COMMAND}
+            echo "Workspace:"
+            echo "${WORKSPACE}"
 
-                    else
+            echo "Project files:"
+            ls -la
 
-                        echo "pytest is not installed."
+            echo "Tests:"
+            find tests -maxdepth 2 -type f -print
 
-                        if [ -d tests ]; then
+            echo "======================================"
+            echo "PYTHON INFORMATION"
+            echo "======================================"
 
-                            echo "ERROR: tests directory exists but pytest is not installed."
+            python --version
+            python -c "import sys; print('\\n'.join(sys.path))"
 
-                            exit 1
+            echo "======================================"
+            echo "CONFIGURING PYTHONPATH"
+            echo "======================================"
 
-                        else
+            export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
-                            echo "No tests directory found."
-                            echo "Skipping tests."
+            echo "PYTHONPATH=${PYTHONPATH}"
 
-                        fi
-                    fi
+            echo "======================================"
+            echo "TESTING APPLICATION IMPORT"
+            echo "======================================"
 
-                    echo "Testing completed."
-                '''
-            }
-        }
+            python -c "from app import greet; print(greet('Jenkins'))"
+
+            echo "Application import successful."
+
+            echo "======================================"
+            echo "RUNNING PYTEST"
+            echo "======================================"
+
+            python -m pytest -v
+
+            echo "======================================"
+            echo "PYTHON TESTS PASSED"
+            echo "======================================"
+        '''
+    }
+}
 
 
         stage('SonarQube Scan') {
