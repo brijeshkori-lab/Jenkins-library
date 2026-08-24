@@ -1,34 +1,34 @@
 pipeline {
 
-    agent any
+    agent {
+        label 'python-build-agent'
+    }
 
     parameters {
 
         string(
-            name: 'PROJECT_URL',
+            name: 'GIT_URL',
             defaultValue: '',
-            description: 'Git URL of the Python application'
+            description: 'Git repository URL of the Python application'
+        )
+
+        string(
+            name: 'GIT_BRANCH',
+            defaultValue: 'main',
+            description: 'Git branch to build'
         )
 
         choice(
             name: 'PYTHON_VERSION',
             choices: [
+                'python3',
                 'python3.8',
                 'python3.9',
                 'python3.10',
                 'python3.11',
                 'python3.12'
             ],
-            description: 'Python version'
-        )
-
-        choice(
-            name: 'ENVIRONMENT',
-            choices: [
-                'DEV',
-                'PROD'
-            ],
-            description: 'Target environment'
+            description: 'Python executable available on the Jenkins agent'
         )
 
         string(
@@ -39,17 +39,39 @@ pipeline {
 
         string(
             name: 'SONAR_PROJECT_NAME',
-            defaultValue: 'Python App',
+            defaultValue: 'python-app',
             description: 'SonarQube project name'
+        )
+
+        string(
+            name: 'REQUIREMENTS_FILE',
+            defaultValue: 'requirements.txt',
+            description: 'Python dependency file'
+        )
+
+        string(
+            name: 'TEST_COMMAND',
+            defaultValue: 'pytest',
+            description: 'Command used to execute Python tests'
         )
     }
 
     environment {
 
-        SONAR_SERVER = 'SonarQube'
+        SONAR_SERVER = 'SonarQubeLocal'
+
+        SONAR_TOKEN_CREDENTIAL = 'jenkins-ci'
+
+        VENV_DIR = '.venv'
     }
 
     stages {
+
+        /*
+         * =========================================================
+         * VALIDATE PARAMETERS
+         * =========================================================
+         */
 
         stage('Validate Parameters') {
 
@@ -57,34 +79,67 @@ pipeline {
 
                 script {
 
-                    if (!params.PROJECT_URL?.trim()) {
-                        error 'PROJECT_URL is required'
+                    if (!params.GIT_URL?.trim()) {
+                        error 'GIT_URL is required.'
                     }
 
                     if (!params.SONAR_PROJECT_KEY?.trim()) {
-                        error 'SONAR_PROJECT_KEY is required'
+                        error 'SONAR_PROJECT_KEY is required.'
                     }
 
                     if (!params.SONAR_PROJECT_NAME?.trim()) {
-                        error 'SONAR_PROJECT_NAME is required'
+                        error 'SONAR_PROJECT_NAME is required.'
                     }
 
-                    echo """
-========================================
-Python Application Template
-========================================
-
-Project URL       : ${params.PROJECT_URL}
-Python Version    : ${params.PYTHON_VERSION}
-Environment       : ${params.ENVIRONMENT}
-Sonar Project Key : ${params.SONAR_PROJECT_KEY}
-Sonar Project Name: ${params.SONAR_PROJECT_NAME}
-
-========================================
-"""
+                    echo '''
+====================================================
+PYTHON APPLICATION TEMPLATE
+====================================================
+Git URL          : ${GIT_URL}
+Git Branch       : ${GIT_BRANCH}
+Python Version   : ${PYTHON_VERSION}
+Sonar Project    : ${SONAR_PROJECT_KEY}
+Requirements     : ${REQUIREMENTS_FILE}
+Test Command     : ${TEST_COMMAND}
+====================================================
+'''
                 }
             }
         }
+
+
+        /*
+         * =========================================================
+         * CHECK PYTHON
+         * =========================================================
+         */
+
+        stage('Check Python') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "CHECKING PYTHON"
+                    echo "======================================"
+
+                    command -v "${PYTHON_VERSION}"
+
+                    "${PYTHON_VERSION}" --version
+
+                    echo "Python is available."
+                '''
+            }
+        }
+
+
+        /*
+         * =========================================================
+         * CHECKOUT
+         * =========================================================
+         */
 
         stage('Checkout') {
 
@@ -93,204 +148,267 @@ Sonar Project Name: ${params.SONAR_PROJECT_NAME}
                 deleteDir()
 
                 git(
-                    url: params.PROJECT_URL,
-                    branch: 'main'
+                    url: params.GIT_URL,
+                    branch: params.GIT_BRANCH,
+                    credentialsId: 'github-credentials'
                 )
             }
         }
 
-        stage('Python Version') {
+
+        /*
+         * =========================================================
+         * CREATE VIRTUAL ENVIRONMENT
+         * =========================================================
+         */
+
+        stage('Create Virtual Environment') {
 
             steps {
 
-                sh """
+                sh '''
                     set -e
 
-                    echo "Requested Python version:"
-                    ${params.PYTHON_VERSION} --version
-                """
+                    echo "======================================"
+                    echo "CREATING PYTHON VIRTUAL ENVIRONMENT"
+                    echo "======================================"
+
+                    "${PYTHON_VERSION}" -m venv "${VENV_DIR}"
+
+                    . "${VENV_DIR}/bin/activate"
+
+                    python --version
+
+                    python -m pip install --upgrade pip setuptools wheel
+
+                    echo "Virtual environment created."
+                '''
             }
         }
+
+
+        /*
+         * =========================================================
+         * INSTALL DEPENDENCIES
+         * =========================================================
+         */
 
         stage('Install Dependencies') {
 
             steps {
 
-                sh """
+                sh '''
                     set -e
 
-                    ${params.PYTHON_VERSION} -m venv .venv
+                    echo "======================================"
+                    echo "INSTALLING DEPENDENCIES"
+                    echo "======================================"
 
-                    . .venv/bin/activate
+                    . "${VENV_DIR}/bin/activate"
 
-                    python --version
+                    if [ -f "${REQUIREMENTS_FILE}" ]; then
 
-                    python -m pip install --upgrade pip
+                        echo "Installing dependencies from ${REQUIREMENTS_FILE}"
 
-                    if [ -f requirements.txt ]; then
-                        pip install -r requirements.txt
-                    else
-                        echo "No requirements.txt found"
-                    fi
-                """
-            }
-        }
-
-        stage('Unit Tests') {
-
-            steps {
-
-                sh """
-                    set -e
-
-                    . .venv/bin/activate
-
-                    if [ -d tests ]; then
-
-                        pip install pytest pytest-cov
-
-                        pytest \
-                            --junitxml=test-results.xml \
-                            --cov=. \
-                            --cov-report=xml
+                        pip install -r "${REQUIREMENTS_FILE}"
 
                     else
 
-                        echo "No tests directory found"
-                        echo "Skipping tests"
+                        echo "No ${REQUIREMENTS_FILE} found."
+
+                        echo "Skipping dependency installation."
+
                     fi
-                """
-            }
 
-            post {
-
-                always {
-
-                    junit(
-                        allowEmptyResults: true,
-                        testResults: 'test-results.xml'
-                    )
-
-                    archiveArtifacts(
-                        artifacts: 'coverage.xml',
-                        allowEmptyArchive: true
-                    )
-                }
+                    echo "Dependencies installation completed."
+                '''
             }
         }
 
-        stage('SonarQube Analysis') {
+
+        /*
+         * =========================================================
+         * TEST
+         * =========================================================
+         */
+
+        stage('Test') {
 
             steps {
 
-                withSonarQubeEnv("${SONAR_SERVER}") {
+                sh '''
+                    set -e
 
-                    sh """
-                        set -e
+                    echo "======================================"
+                    echo "RUNNING PYTHON TESTS"
+                    echo "======================================"
 
-                        . .venv/bin/activate
+                    . "${VENV_DIR}/bin/activate"
 
-                        pip install sonar-scanner-cli
+                    if command -v pytest >/dev/null 2>&1; then
 
-                        sonar-scanner \
-                            -Dsonar.projectKey=${params.SONAR_PROJECT_KEY} \
-                            -Dsonar.projectName=${params.SONAR_PROJECT_NAME} \
-                            -Dsonar.sources=. \
-                            -Dsonar.python.version=${params.PYTHON_VERSION.replace('python3.', '3.')} \
-                            -Dsonar.exclusions=.venv/**,**/__pycache__/**,tests/** \
-                            -Dsonar.scm.disabled=true
-                    """
+                        ${TEST_COMMAND}
+
+                    else
+
+                        echo "pytest is not installed."
+
+                        echo "Checking whether tests directory exists..."
+
+                        if [ -d tests ]; then
+
+                            echo "ERROR: tests directory exists but pytest is not installed."
+
+                            exit 1
+
+                        else
+
+                            echo "No tests directory found."
+
+                            echo "Skipping tests."
+
+                        fi
+                    fi
+
+                    echo "Testing completed."
+                '''
+            }
+        }
+
+
+        /*
+         * =========================================================
+         * SONARQUBE SCAN
+         * =========================================================
+         */
+
+        stage('SonarQube Scan') {
+
+            steps {
+
+                script {
+
+                    def scannerHome = tool 'sonar-scanner'
+
+                    withCredentials([
+                        string(
+                            credentialsId: env.SONAR_TOKEN_CREDENTIAL,
+                            variable: 'SONAR_TOKEN'
+                        )
+                    ]) {
+
+                        withSonarQubeEnv(env.SONAR_SERVER) {
+
+                            sh """
+                                set -e
+
+                                echo "======================================"
+                                echo "SONARQUBE ANALYSIS"
+                                echo "======================================"
+
+                                ${scannerHome}/bin/sonar-scanner \
+                                    -Dsonar.projectKey="${params.SONAR_PROJECT_KEY}" \
+                                    -Dsonar.projectName="${params.SONAR_PROJECT_NAME}" \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.sourceEncoding=UTF-8 \
+                                    -Dsonar.python.version="${params.PYTHON_VERSION.replace('python3.', '')}" \
+                                    -Dsonar.exclusions="**/.venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**" \
+                                    -Dsonar.token="\${SONAR_TOKEN}"
+
+                                echo "SonarQube scan completed."
+                            """
+                        }
+                    }
                 }
             }
         }
 
-      stage('SonarQube Quality Gate') {
 
-    steps {
+        /*
+         * =========================================================
+         * SONARQUBE QUALITY GATE
+         * =========================================================
+         */
 
-        script {
+        stage('SonarQube Quality Gate') {
 
-            timeout(
-                time: 10,
-                unit: 'MINUTES'
-            ) {
+            steps {
 
-                def qualityGate = waitForQualityGate(
-                    abortPipeline: false
-                )
-
-                echo "SonarQube Quality Gate: ${qualityGate.status}"
-
-                if (
-                    params.ENVIRONMENT == 'PROD' &&
-                    qualityGate.status != 'OK'
+                timeout(
+                    time: 10,
+                    unit: 'MINUTES'
                 ) {
 
-                    error(
-                        "SonarQube Quality Gate FAILED in PROD"
-                    )
-                }
+                    script {
 
-                if (
-                    params.ENVIRONMENT != 'PROD' &&
-                    qualityGate.status != 'OK'
-                ) {
+                        def qualityGate = waitForQualityGate(
+                            abortPipeline: false
+                        )
 
-                    echo """
-SonarQube Quality Gate failed.
+                        echo "======================================"
+                        echo "SONARQUBE QUALITY GATE"
+                        echo "======================================"
 
-Environment: ${params.ENVIRONMENT}
+                        echo "Quality Gate Status: ${qualityGate.status}"
 
-Pipeline continues because this is a non-PROD build.
-"""
-                }
+                        if (qualityGate.status != 'OK') {
 
-                if (qualityGate.status == 'OK') {
+                            error(
+                                "SonarQube Quality Gate FAILED: ${qualityGate.status}"
+                            )
+                        }
 
-                    echo """
-========================================
-SONARQUBE QUALITY GATE PASSED
-========================================
-"""
+                        echo "SonarQube Quality Gate PASSED."
+                    }
                 }
             }
         }
     }
-}
+
+
+    /*
+     * =============================================================
+     * POST ACTIONS
+     * =============================================================
+     */
 
     post {
 
         success {
 
-            echo """
-========================================
+            echo '''
+==============================================
 PYTHON PIPELINE SUCCESS
-========================================
+==============================================
 
-Project     : ${params.PROJECT_URL}
-Python      : ${params.PYTHON_VERSION}
-Environment : ${params.ENVIRONMENT}
-SonarQube   : ${params.SONAR_PROJECT_NAME}
+Application build and SonarQube analysis
+completed successfully.
 
-========================================
-"""
+==============================================
+'''
         }
 
         failure {
 
-            echo """
-========================================
+            echo '''
+==============================================
 PYTHON PIPELINE FAILED
-========================================
+==============================================
 
-Project     : ${params.PROJECT_URL}
-Python      : ${params.PYTHON_VERSION}
-Environment : ${params.ENVIRONMENT}
+Please check the failed stage and Jenkins
+console output.
 
-Check Jenkins logs for details.
+==============================================
+'''
+        }
 
-========================================
-"""
+        always {
+
+            sh '''
+                rm -rf .venv || true
+                rm -rf __pycache__ || true
+                rm -rf .pytest_cache || true
+            '''
         }
     }
 }
