@@ -33,13 +33,13 @@ pipeline {
 
         string(
             name: 'SONAR_PROJECT_KEY',
-            defaultValue: '',
+            defaultValue: 'python-app',
             description: 'SonarQube project key'
         )
 
         string(
             name: 'SONAR_PROJECT_NAME',
-            defaultValue: '',
+            defaultValue: 'Python App',
             description: 'SonarQube project name'
         )
     }
@@ -204,49 +204,59 @@ Sonar Project Name: ${params.SONAR_PROJECT_NAME}
             }
         }
 
-        stage('SonarQube Quality Gate') {
+      stage('SonarQube Quality Gate') {
 
-            steps {
+    steps {
 
-                timeout(
-                    time: 10,
-                    unit: 'MINUTES'
+        script {
+
+            timeout(
+                time: 10,
+                unit: 'MINUTES'
+            ) {
+
+                def qualityGate = waitForQualityGate(
+                    abortPipeline: false
+                )
+
+                echo "SonarQube Quality Gate: ${qualityGate.status}"
+
+                if (
+                    params.ENVIRONMENT == 'PROD' &&
+                    qualityGate.status != 'OK'
                 ) {
 
-                    def qualityGate =
-                        waitForQualityGate(
-                            abortPipeline: false
-                        )
+                    error(
+                        "SonarQube Quality Gate FAILED in PROD"
+                    )
+                }
 
-                    echo "SonarQube Quality Gate: ${qualityGate.status}"
+                if (
+                    params.ENVIRONMENT != 'PROD' &&
+                    qualityGate.status != 'OK'
+                ) {
 
-                    if (
-                        params.ENVIRONMENT == 'PROD' &&
-                        qualityGate.status != 'OK'
-                    ) {
-
-                        error(
-                            "SonarQube Quality Gate FAILED in PROD"
-                        )
-                    }
-
-                    if (
-                        params.ENVIRONMENT != 'PROD' &&
-                        qualityGate.status != 'OK'
-                    ) {
-
-                        echo """
+                    echo """
 SonarQube Quality Gate failed.
 
 Environment: ${params.ENVIRONMENT}
 
 Pipeline continues because this is a non-PROD build.
 """
-                    }
+                }
+
+                if (qualityGate.status == 'OK') {
+
+                    echo """
+========================================
+SONARQUBE QUALITY GATE PASSED
+========================================
+"""
                 }
             }
         }
     }
+}
 
     post {
 
