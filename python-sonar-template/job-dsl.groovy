@@ -7,7 +7,15 @@ pipelineJob('python-app-with-sonar') {
         The pipeline implementation is maintained in GitHub.
     ''')
 
+    // =========================================================
+    // PARAMETERS
+    // =========================================================
+
     parameters {
+
+        // -----------------------------------------------------
+        // GIT
+        // -----------------------------------------------------
 
         stringParam(
             'GIT_URL',
@@ -21,13 +29,23 @@ pipelineJob('python-app-with-sonar') {
             'Git branch to build'
         )
 
+
+        // -----------------------------------------------------
+        // PYTHON
+        // -----------------------------------------------------
+
         choiceParam(
-    'PYTHON_VERSION',
-    [
-        'python3'
-    ],
-    'Python executable available on the Jenkins agent'
-)
+            'PYTHON_VERSION',
+            [
+                'python3'
+            ],
+            'Python executable available on the Jenkins agent'
+        )
+
+
+        // -----------------------------------------------------
+        // ENVIRONMENT
+        // -----------------------------------------------------
 
         choiceParam(
             'ENVIRONMENT',
@@ -44,8 +62,13 @@ pipelineJob('python-app-with-sonar') {
                 'false',
                 'true'
             ],
-            'Set true only for an approved PROD execution'
+            'Must be true for PROD execution'
         )
+
+
+        // -----------------------------------------------------
+        // PYTHON BUILD
+        // -----------------------------------------------------
 
         stringParam(
             'REQUIREMENTS_FILE',
@@ -55,9 +78,14 @@ pipelineJob('python-app-with-sonar') {
 
         stringParam(
             'TEST_COMMAND',
-            'pytest',
-            'Command used to execute Python tests'
+            'pytest -v',
+            'Python test command'
         )
+
+
+        // -----------------------------------------------------
+        // SONARQUBE
+        // -----------------------------------------------------
 
         stringParam(
             'SONAR_PROJECT_KEY',
@@ -70,6 +98,11 @@ pipelineJob('python-app-with-sonar') {
             'python-app',
             'SonarQube project name'
         )
+
+
+        // -----------------------------------------------------
+        // PROD APPROVAL
+        // -----------------------------------------------------
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
@@ -84,6 +117,11 @@ pipelineJob('python-app-with-sonar') {
         )
     }
 
+
+    // =========================================================
+    // PIPELINE DEFINITION
+    // =========================================================
+
     definition {
 
         cpsScm {
@@ -93,14 +131,19 @@ pipelineJob('python-app-with-sonar') {
                 git {
 
                     remote {
-                        url('https://github.com/brijeshkori-lab/Jenkins-library.git')
+
+                        url(
+                            'https://github.com/brijeshkori-lab/Jenkins-library.git'
+                        )
                     }
 
                     branch('*/template')
                 }
             }
 
-            scriptPath('python-sonar-template/Jenkinsfile')
+            scriptPath(
+                'python-sonar-template/Jenkinsfile'
+            )
 
             lightweight(true)
         }
