@@ -1,7 +1,7 @@
 pipeline {
 
     agent {
-        label 'python-build-agent'
+        any
     }
 
     parameters {
