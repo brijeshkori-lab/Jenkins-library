@@ -1,7 +1,7 @@
 pipelineJob('python-app-with-sonar') {
 
     description('''
-        Production Python CI Pipeline with SonarQube.
+        Production Python CI/CD Pipeline with SonarQube and JFrog.
 
         This job is generated using Jenkins Job DSL.
         The pipeline implementation is maintained in GitHub.
@@ -10,9 +10,15 @@ pipelineJob('python-app-with-sonar') {
     parameters {
 
         stringParam(
-            'PROJECT_URL',
+            'GIT_URL',
             '',
             'Git URL of the Python application'
+        )
+
+        stringParam(
+            'GIT_BRANCH',
+            'main',
+            'Git branch to build'
         )
 
         choiceParam(
@@ -36,6 +42,27 @@ pipelineJob('python-app-with-sonar') {
             'Target environment'
         )
 
+        choiceParam(
+            'IS_FINAL_RUN',
+            [
+                'false',
+                'true'
+            ],
+            'Set true only for an approved PROD execution'
+        )
+
+        stringParam(
+            'REQUIREMENTS_FILE',
+            'requirements.txt',
+            'Python dependency file'
+        )
+
+        stringParam(
+            'TEST_COMMAND',
+            'pytest',
+            'Command used to execute Python tests'
+        )
+
         stringParam(
             'SONAR_PROJECT_KEY',
             'python-app',
@@ -44,8 +71,20 @@ pipelineJob('python-app-with-sonar') {
 
         stringParam(
             'SONAR_PROJECT_NAME',
-            'python-app ',
+            'python-app',
             'SonarQube project name'
+        )
+
+        stringParam(
+            'PRIMARY_APPROVER_EMAIL',
+            '',
+            'Email address of the PROD approver'
+        )
+
+        stringParam(
+            'MANAGER_EMAIL',
+            '',
+            'Manager email for PROD notification'
         )
     }
 
