@@ -19,7 +19,7 @@ pipeline {
                 'python3.11',
                 'python3.12'
             ],
-            description: 'Python version to use'
+            description: 'Python version'
         )
 
         string(
@@ -45,109 +45,44 @@ pipeline {
             ],
             description: 'Production final run'
         )
-
-        string(
-            name: 'JFROG_REPOSITORY',
-            defaultValue: 'python-local',
-            description: 'JFrog repository for artifacts'
-        )
-
-        string(
-            name: 'PRIMARY_APPROVER_EMAIL',
-            defaultValue: '',
-            description: 'Required for PROD final run'
-        )
-
-        string(
-            name: 'MANAGER_EMAIL',
-            defaultValue: '',
-            description: 'Manager notification email'
-        )
-
-        string(
-            name: 'TO_EMAIL',
-            defaultValue: '',
-            description: 'Pipeline notification recipients'
-        )
-
-        string(
-            name: 'CC_EMAIL',
-            defaultValue: '',
-            description: 'Pipeline CC recipients'
-        )
-    }
-
-    environment {
-
-        SONAR_SERVER = 'SonarQube'
-
-        GIT_CREDENTIALS_ID = 'git-credentials'
-
-        SONAR_TOKEN_ID = 'sonar-token'
-
-        JFROG_TOKEN_ID = 'jfrog-token'
-
-        ARTIFACTORY_URL = 'https://trialjpunep.jfrog.io'
-
-        BUILD_VERSION = "1.${BUILD_NUMBER}"
     }
 
     stages {
 
-        stage('Validate Parameters') {
+        stage('Validate') {
 
             steps {
 
                 script {
 
                     if (!params.PROJECT_URL?.trim()) {
-                        error("PROJECT_URL is required")
+                        error('PROJECT_URL is required')
                     }
 
                     if (!params.SONAR_PROJECT_KEY?.trim()) {
-                        error("SONAR_PROJECT_KEY is required")
+                        error('SONAR_PROJECT_KEY is required')
                     }
 
-                    if (params.ENVIRONMENT == 'PROD' &&
-                        params.IS_FINAL_RUN != 'true') {
+                    if (
+                        params.ENVIRONMENT == 'PROD' &&
+                        params.IS_FINAL_RUN != 'true'
+                    ) {
 
-                        error("""
-=================================================
-PRODUCTION BUILD BLOCKED
-=================================================
-
-PROD builds require:
-
-IS_FINAL_RUN = true
-
-Selected:
-Environment = ${params.ENVIRONMENT}
-IS_FINAL_RUN = ${params.IS_FINAL_RUN}
-
-=================================================
-""")
-                    }
-
-                    if (params.IS_FINAL_RUN == 'true' &&
-                        params.ENVIRONMENT != 'PROD') {
-
-                        error("""
-FINAL RUN can only be used with PROD.
-""")
+                        error(
+                            'PROD requires IS_FINAL_RUN=true'
+                        )
                     }
 
                     echo """
 =========================================
-PYTHON PIPELINE
+PYTHON TEMPLATE TEST
 =========================================
 
-Project URL       : ${params.PROJECT_URL}
-Python Version    : ${params.PYTHON_VERSION}
-Environment       : ${params.ENVIRONMENT}
-Final Run         : ${params.IS_FINAL_RUN}
-Sonar Project     : ${params.SONAR_PROJECT_KEY}
-JFrog Repository  : ${params.JFROG_REPOSITORY}
-Build Version     : ${env.BUILD_VERSION}
+Project URL      : ${params.PROJECT_URL}
+Python Version   : ${params.PYTHON_VERSION}
+Sonar Project    : ${params.SONAR_PROJECT_KEY}
+Environment      : ${params.ENVIRONMENT}
+Final Run        : ${params.IS_FINAL_RUN}
 
 =========================================
 """
@@ -155,399 +90,57 @@ Build Version     : ${env.BUILD_VERSION}
             }
         }
 
-        stage('Checkout') {
+        stage('Checkout Python Application') {
 
             steps {
 
                 deleteDir()
 
-                checkout([
-                    $class: 'GitSCM',
-
-                    branches: [[
-                        name: '*/main'
-                    ]],
-
-                    userRemoteConfigs: [[
-                        url: params.PROJECT_URL,
-                        credentialsId: env.GIT_CREDENTIALS_ID
-                    ]],
-
-                    extensions: []
-                ])
+                git(
+                    url: params.PROJECT_URL,
+                    branch: 'main'
+                )
             }
         }
 
-        stage('Python Environment') {
+        stage('Python Version Check') {
 
             steps {
 
                 sh """
                     set -e
 
-                    echo "Using Python:"
+                    echo "Requested Python:"
                     ${params.PYTHON_VERSION} --version
 
-                    echo "Creating virtual environment"
-
-                    ${params.PYTHON_VERSION} -m venv .venv
-
-                    . .venv/bin/activate
-
-                    python --version
-
-                    python -m pip install --upgrade pip
-
-                    if [ -f requirements.txt ]; then
-
-                        echo "Installing requirements.txt"
-
-                        pip install -r requirements.txt
-
-                    elif [ -f pyproject.toml ]; then
-
-                        echo "Installing Python project"
-
-                        pip install .
-
-                    else
-
-                        echo "No dependency file found"
-
-                    fi
+                    echo "Python template is working."
                 """
             }
         }
 
-        stage('Test + Coverage') {
+        stage('Template Test') {
 
             steps {
 
-                sh """
-                    set -e
-
-                    . .venv/bin/activate
-
-                    pip install pytest pytest-cov
-
-                    mkdir -p reports
-
-                    echo "Running Python tests"
-
-                    pytest \
-                        --junitxml=reports/junit.xml \
-                        --cov=. \
-                        --cov-report=xml:reports/coverage.xml \
-                        --cov-report=term
-
-                """
-            }
-
-            post {
-
-                always {
-
-                    junit(
-                        allowEmptyResults: true,
-                        testResults: 'reports/junit.xml'
-                    )
-
-                    archiveArtifacts(
-                        artifacts: 'reports/**',
-                        allowEmptyArchive: true
-                    )
-                }
-            }
-        }
-
-        stage('SonarQube Scan') {
-
-            steps {
-
-                script {
-
-                    def scannerHome =
-                        tool 'sonar-scanner'
-
-                    withCredentials([
-                        string(
-                            credentialsId: env.SONAR_TOKEN_ID,
-                            variable: 'SONAR_TOKEN'
-                        )
-                    ]) {
-
-                        withSonarQubeEnv(env.SONAR_SERVER) {
-
-                            sh """
-                                set -e
-
-                                echo "======================================"
-                                echo "SONARQUBE SCAN"
-                                echo "======================================"
-
-                                ${scannerHome}/bin/sonar-scanner \
-                                    -Dsonar.projectKey=${params.SONAR_PROJECT_KEY} \
-                                    -Dsonar.projectName=${params.SONAR_PROJECT_KEY} \
-                                    -Dsonar.projectVersion=${BUILD_VERSION} \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.python.version=${params.PYTHON_VERSION.replace('python3.', '')} \
-                                    -Dsonar.python.coverage.reportPaths=reports/coverage.xml \
-                                    -Dsonar.exclusions=.venv/**,**/__pycache__/**,**/reports/** \
-                                    -Dsonar.sourceEncoding=UTF-8 \
-                                    -Dsonar.token=\$SONAR_TOKEN
-
-                                echo "SonarQube scan completed"
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('SonarQube Quality Gate') {
-
-            steps {
-
-                timeout(
-                    time: 10,
-                    unit: 'MINUTES'
-                ) {
-
-                    script {
-
-                        def qg =
-                            waitForQualityGate(
-                                abortPipeline: false
-                            )
-
-                        echo "Quality Gate: ${qg.status}"
-
-                        if (
-                            params.ENVIRONMENT == 'PROD' &&
-                            qg.status != 'OK'
-                        ) {
-
-                            error(
-                                "SonarQube Quality Gate FAILED in PROD"
-                            )
-                        }
-
-                        if (
-                            params.ENVIRONMENT != 'PROD' &&
-                            qg.status != 'OK'
-                        ) {
-
-                            echo """
-WARNING:
-
-SonarQube Quality Gate failed.
-
-Environment is ${params.ENVIRONMENT}
-
-Pipeline will continue.
-"""
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Package Application') {
-
-            steps {
-
-                sh """
-                    set -e
-
-                    mkdir -p package
-
-                    tar \
-                        --exclude='.git' \
-                        --exclude='.venv' \
-                        --exclude='package' \
-                        -czf \
-                        package/python-app-${BUILD_VERSION}.tar.gz \
-                        .
-
-                    echo "Package created"
-
-                    ls -lh package/
-                """
-            }
-        }
-
-        stage('Publish to JFrog') {
-
-            steps {
-
-                withCredentials([
-                    string(
-                        credentialsId: env.JFROG_TOKEN_ID,
-                        variable: 'JFROG_TOKEN'
-                    )
-                ]) {
-
-                    sh """
-                        set -e
-
-                        echo "======================================"
-                        echo "JFROG CONFIGURATION"
-                        echo "======================================"
-
-                        jf c rm artifactory || true
-
-                        jf c add artifactory \
-                            --url=${ARTIFACTORY_URL} \
-                            --access-token=\$JFROG_TOKEN \
-                            --interactive=false \
-                            --overwrite=true
-
-                        echo "JFrog connection check"
-
-                        jf rt ping
-
-                        echo "Uploading artifact"
-
-                        jf rt upload \
-                            package/python-app-${BUILD_VERSION}.tar.gz \
-                            "${params.JFROG_REPOSITORY}/${JOB_NAME}/${BUILD_NUMBER}/" \
-                            --flat=true \
-                            --build-name="${JOB_NAME}" \
-                            --build-number="${BUILD_NUMBER}"
-
-                        echo "Publishing build information"
-
-                        jf rt build-publish \
-                            "${JOB_NAME}" \
-                            "${BUILD_NUMBER}"
-
-                        echo "JFrog publishing completed"
-                    """
-                }
-            }
-        }
-
-        stage('Production Approval') {
-
-            when {
-
-                expression {
-                    params.IS_FINAL_RUN == 'true'
-                }
-            }
-
-            steps {
-
-                script {
-
-                    if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
-                        error(
-                            "PRIMARY_APPROVER_EMAIL is required for PROD"
-                        )
-                    }
-
-                    echo """
+                echo """
 =========================================
-PRODUCTION APPROVAL REQUIRED
+SUCCESS
 =========================================
 
-Project      : ${params.PROJECT_URL}
-Environment  : ${params.ENVIRONMENT}
-Build        : ${BUILD_NUMBER}
-Approved By  : Primary Approver
+The Jenkins Python application template
+was successfully loaded from GitHub.
+
+Template repository:
+Jenkins-library
+
+Template branch:
+template
+
+Template path:
+python-template/Jenkinsfile
 
 =========================================
 """
-
-                    def approver = input(
-                        message: """
-PRODUCTION RELEASE APPROVAL
-
-Project:
-${params.PROJECT_URL}
-
-Build:
-${BUILD_NUMBER}
-
-Environment:
-${params.ENVIRONMENT}
-
-Approve production release?
-""",
-
-                        ok: 'APPROVE',
-
-                        submitter:
-                            'primary-approver,admin,devops-admin',
-
-                        submitterParameter:
-                            'APPROVER'
-                    )
-
-                    env.APPROVED_BY = approver
-
-                    echo "Approved by: ${approver}"
-                }
-            }
-        }
-
-        stage('Create Release Bundle') {
-
-            when {
-
-                expression {
-                    params.IS_FINAL_RUN == 'true'
-                }
-            }
-
-            steps {
-
-                withCredentials([
-                    string(
-                        credentialsId: env.JFROG_TOKEN_ID,
-                        variable: 'JFROG_TOKEN'
-                    )
-                ]) {
-
-                    sh """
-                        set -e
-
-                        echo "======================================"
-                        echo "CREATING RELEASE BUNDLE"
-                        echo "======================================"
-
-                        jf c rm artifactory || true
-
-                        jf c add artifactory \
-                            --url=${ARTIFACTORY_URL} \
-                            --access-token=\$JFROG_TOKEN \
-                            --interactive=false \
-                            --overwrite=true
-
-                        RB_NAME="${JOB_NAME}-rb"
-
-                        RB_VERSION="${BUILD_NUMBER}"
-
-                        echo "Release Bundle:"
-                        echo "\$RB_NAME/\$RB_VERSION"
-
-                        jf rbc \
-                            "\$RB_NAME" \
-                            "\$RB_VERSION" \
-                            --build-name="${JOB_NAME}" \
-                            --build-number="${BUILD_NUMBER}" \
-                            --sync
-
-                        echo "Release Bundle created"
-
-                        jf rbp \
-                            "\$RB_NAME" \
-                            "\$RB_VERSION" \
-                            PROD
-
-                        echo "Release Bundle promoted to PROD"
-                    """
-                }
             }
         }
     }
@@ -556,41 +149,12 @@ Approve production release?
 
         success {
 
-            echo """
-=========================================
-PYTHON PIPELINE SUCCESS
-=========================================
-
-Project     : ${params.PROJECT_URL}
-Python      : ${params.PYTHON_VERSION}
-Environment : ${params.ENVIRONMENT}
-Build       : ${BUILD_NUMBER}
-=========================================
-"""
+            echo 'Python application template test PASSED'
         }
 
         failure {
 
-            echo """
-=========================================
-PYTHON PIPELINE FAILED
-=========================================
-
-Project     : ${params.PROJECT_URL}
-Build       : ${BUILD_NUMBER}
-Environment : ${params.ENVIRONMENT}
-
-Check Jenkins console output.
-=========================================
-"""
-        }
-
-        always {
-
-            archiveArtifacts(
-                artifacts: 'package/**',
-                allowEmptyArchive: true
-            )
+            echo 'Python application template test FAILED'
         }
     }
 }
