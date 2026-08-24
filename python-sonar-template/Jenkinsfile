@@ -420,61 +420,77 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
 
         stage('Install Dependencies from JFrog') {
 
-            steps {
+    steps {
 
-                withCredentials([
+        withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
 
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
 
-                ]) {
+        ]) {
 
-                    sh '''
-                        set -e
+            sh '''
+                set -e
 
-                        echo "======================================"
-                        echo "INSTALLING APPLICATION DEPENDENCIES"
-                        echo "======================================"
+                PYTHON="${VENV_DIR}/bin/python"
+                PIP_CONFIG="${WORKSPACE}/${VENV_DIR}/pip.conf"
 
-                        if [ -f "${REQUIREMENTS_FILE}" ]; then
-
-                            echo "Requirements file found:"
-                            echo "${REQUIREMENTS_FILE}"
-
-                            echo "Configuring JFrog Python repository..."
-
-                            jf pip-config \
-                                --server-id-resolve=artifactory \
-                                --repo-resolve="${JFROG_VIRTUAL_REPO}"
-
-                            echo "Installing dependencies..."
-
-                            jf pip install \
-                                -r "${REQUIREMENTS_FILE}"
-
-                        else
-
-                            echo "No requirements.txt found."
-
-                            echo "Skipping application dependency installation."
-
-                        fi
-
-                        echo "======================================"
-                        echo "DEPENDENCY INSTALLATION COMPLETED"
-                        echo "======================================"
-                    '''
+                cleanup() {
+                    rm -f "${PIP_CONFIG}"
                 }
-            }
-        }
 
+                trap cleanup EXIT
+
+
+                echo "======================================"
+                echo "INSTALLING DEPENDENCIES FROM JFROG"
+                echo "======================================"
+
+                if [ ! -f "${REQUIREMENTS_FILE}" ]; then
+                    echo "No ${REQUIREMENTS_FILE} found."
+                    exit 0
+                fi
+
+
+                echo "Python:"
+                "${PYTHON}" --version
+
+                echo "Pip:"
+                "${PYTHON}" -m pip --version
+
+
+                mkdir -p "${VENV_DIR}"
+
+
+                cat > "${PIP_CONFIG}" <<EOF
+[global]
+index-url = https://${JFROG_USER}:${JFROG_TOKEN}@${JFROG_URL}/artifactory/${JFROG_VIRTUAL_REPO}/simple
+EOF
+
+                export PIP_CONFIG_FILE="${PIP_CONFIG}"
+
+
+                echo "Installing:"
+                cat "${REQUIREMENTS_FILE}"
+
+                "${PYTHON}" -m pip install \
+                    -r "${REQUIREMENTS_FILE}"
+
+
+                echo "======================================"
+                echo "DEPENDENCIES INSTALLED SUCCESSFULLY"
+                echo "======================================"
+            '''
+        }
+    }
+}
 
         // =====================================================
         // 7. TEST
