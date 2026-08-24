@@ -484,6 +484,51 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
         // 8. SONARQUBE SCAN
         // =====================================================
 
+        stage('Test Sonar Token') {
+
+    steps {
+
+        withCredentials([
+            string(
+                credentialsId: 'sonar-token',
+                variable: 'SONAR_TOKEN'
+            )
+        ]) {
+
+            sh '''
+                set -e
+
+                echo "======================================"
+                echo "TESTING SONARQUBE TOKEN"
+                echo "======================================"
+
+                STATUS=$(curl \
+                    -s \
+                    -o /tmp/sonar-response.txt \
+                    -w "%{http_code}" \
+                    -u "${SONAR_TOKEN}:" \
+                    "http://172.23.59.225:9000/api/v2/analysis/version")
+
+                echo "HTTP Status: ${STATUS}"
+
+                if [ "${STATUS}" != "200" ]; then
+                    echo "SonarQube authentication failed."
+                    echo "Response:"
+                    cat /tmp/sonar-response.txt
+                    exit 1
+                fi
+
+                echo "SonarQube token authentication successful."
+
+                echo "Server response:"
+                cat /tmp/sonar-response.txt
+
+                echo ""
+            '''
+        }
+    }
+}
+
         stage('SonarQube Scan') {
 
             steps {
