@@ -22,16 +22,12 @@ pipelineJob('python-app-with-sonar') {
         )
 
         choiceParam(
-            'PYTHON_VERSION',
-            [
-                'python3.8',
-                'python3.9',
-                'python3.10',
-                'python3.11',
-                'python3.12'
-            ],
-            'Python version to use for the build'
-        )
+    'PYTHON_VERSION',
+    [
+        'python3'
+    ],
+    'Python executable available on the Jenkins agent'
+)
 
         choiceParam(
             'ENVIRONMENT',

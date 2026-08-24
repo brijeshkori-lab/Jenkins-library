@@ -247,13 +247,16 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
 
             steps {
 
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: "${JFROG_USER_CREDENTIAL}",
-                        usernameVariable: 'JFROG_USER',
-                        passwordVariable: 'JFROG_TOKEN'
-                    )
-                ]) {
+               withCredentials([
+    string(
+        credentialsId: 'jfrog-user',
+        variable: 'JFROG_USER'
+    ),
+    string(
+        credentialsId: 'jfrog-token',
+        variable: 'JFROG_TOKEN'
+    )
+]) {
 
                     sh '''
                         set -e
@@ -345,13 +348,16 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
 
             steps {
 
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: "${JFROG_USER_CREDENTIAL}",
-                        usernameVariable: 'JFROG_USER',
-                        passwordVariable: 'JFROG_TOKEN'
-                    )
-                ]) {
+              withCredentials([
+    string(
+        credentialsId: 'jfrog-user',
+        variable: 'JFROG_USER'
+    ),
+    string(
+        credentialsId: 'jfrog-token',
+        variable: 'JFROG_TOKEN'
+    )
+]) {
 
                     sh '''
                         set -e
@@ -738,12 +744,15 @@ this execution.
             steps {
 
                 withCredentials([
-                    usernamePassword(
-                        credentialsId: "${JFROG_USER_CREDENTIAL}",
-                        usernameVariable: 'JFROG_USER',
-                        passwordVariable: 'JFROG_TOKEN'
-                    )
-                ]) {
+    string(
+        credentialsId: 'jfrog-user',
+        variable: 'JFROG_USER'
+    ),
+    string(
+        credentialsId: 'jfrog-token',
+        variable: 'JFROG_TOKEN'
+    )
+]) {
 
                     sh '''
                         set -e
