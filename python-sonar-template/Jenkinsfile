@@ -980,133 +980,155 @@ Build       : ${BUILD_NUMBER}
 
         stage('Publish Package to JFrog') {
 
-            when {
+    when {
 
-                expression {
+        expression {
 
-                    params.ENVIRONMENT == 'DEV' ||
-                    params.ENVIRONMENT == 'PROD'
-                }
-            }
-
-
-            steps {
-
-                withCredentials([
-
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
-
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
-
-                ]) {
-
-                    sh '''
-                        set -e
-
-                        echo "======================================"
-                        echo "PUBLISHING PYTHON PACKAGE TO JFROG"
-                        echo "======================================"
-
-                        echo "Environment:"
-                        echo "${ENVIRONMENT}"
-
-                        echo "Repository:"
-                        echo "${JFROG_LOCAL_REPO}"
-
-                        echo "Package:"
-                        echo "${PYTHON_PACKAGE_FILE}"
-
-
-                        // -------------------------------------------------
-                        // Configure JFrog
-                        // -------------------------------------------------
-
-                        jf config rm "${JFROG_SERVER}" --quiet || true
-
-                        jf config add "${JFROG_SERVER}" \
-                            --url="${JFROG_URL}" \
-                            --user="${JFROG_USER}" \
-                            --access-token="${JFROG_TOKEN}" \
-                            --interactive=false \
-                            --overwrite=true
-
-
-                        // -------------------------------------------------
-                        // Upload wheel
-                        // -------------------------------------------------
-
-                        echo "======================================"
-                        echo "UPLOADING WHEEL"
-                        echo "======================================"
-
-                        jf rt upload \
-                            "${PACKAGE_DIR}/*.whl" \
-                            "${JFROG_LOCAL_REPO}/" \
-                            --server-id="${JFROG_SERVER}" \
-                            --flat=true
-
-
-                        // -------------------------------------------------
-                        // Upload source distribution
-                        // -------------------------------------------------
-
-                        echo "======================================"
-                        echo "UPLOADING SOURCE DISTRIBUTION"
-                        echo "======================================"
-
-                        if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
-
-                            jf rt upload \
-                                "${PACKAGE_DIR}/*.tar.gz" \
-                                "${JFROG_LOCAL_REPO}/" \
-                                --server-id="${JFROG_SERVER}" \
-                                --flat=true
-
-                        else
-
-                            echo "No .tar.gz file found."
-
-                        fi
-
-
-                        // -------------------------------------------------
-                        // Publish Build Info
-                        // -------------------------------------------------
-
-                        echo "======================================"
-                        echo "PUBLISHING JFROG BUILD INFO"
-                        echo "======================================"
-
-                        jf rt build-publish \
-                            "${JFROG_CLI_BUILD_NAME}" \
-                            "${JFROG_CLI_BUILD_NUMBER}" \
-                            --server-id="${JFROG_SERVER}"
-
-
-                        echo "======================================"
-                        echo "JFROG PUBLISH COMPLETED"
-                        echo "======================================"
-
-                        echo "Build Name:"
-                        echo "${JFROG_CLI_BUILD_NAME}"
-
-                        echo "Build Number:"
-                        echo "${JFROG_CLI_BUILD_NUMBER}"
-
-                        echo "Repository:"
-                        echo "${JFROG_LOCAL_REPO}"
-
-                        echo "======================================"
-                    '''
-                }
-            }
+            params.ENVIRONMENT == 'DEV' ||
+            params.ENVIRONMENT == 'PROD'
         }
+    }
+
+    steps {
+
+        withCredentials([
+
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
+
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
+
+        ]) {
+
+            sh '''
+                set -e
+
+                echo "======================================"
+                echo "PUBLISHING PYTHON PACKAGE TO JFROG"
+                echo "======================================"
+
+                echo "Environment:"
+                echo "${ENVIRONMENT}"
+
+                echo "Repository:"
+                echo "${JFROG_LOCAL_REPO}"
+
+                echo "Package:"
+                echo "${PYTHON_PACKAGE_FILE}"
+
+
+                # -------------------------------------------------
+                # Configure JFrog
+                # -------------------------------------------------
+
+                jf config rm "${JFROG_SERVER}" --quiet || true
+
+                jf config add "${JFROG_SERVER}" \
+                    --url="${JFROG_URL}" \
+                    --user="${JFROG_USER}" \
+                    --access-token="${JFROG_TOKEN}" \
+                    --interactive=false \
+                    --overwrite=true
+
+
+                # -------------------------------------------------
+                # Verify JFrog connection
+                # -------------------------------------------------
+
+                echo "======================================"
+                echo "VERIFYING JFROG CONNECTION"
+                echo "======================================"
+
+                jf rt ping \
+                    --server-id="${JFROG_SERVER}"
+
+
+                # -------------------------------------------------
+                # Verify package files
+                # -------------------------------------------------
+
+                echo "======================================"
+                echo "PACKAGE FILES"
+                echo "======================================"
+
+                ls -lah "${PACKAGE_DIR}"
+
+
+                # -------------------------------------------------
+                # Upload wheel
+                # -------------------------------------------------
+
+                echo "======================================"
+                echo "UPLOADING WHEEL"
+                echo "======================================"
+
+                jf rt upload \
+                    "${PACKAGE_DIR}/*.whl" \
+                    "${JFROG_LOCAL_REPO}/" \
+                    --server-id="${JFROG_SERVER}" \
+                    --flat=true
+
+
+                # -------------------------------------------------
+                # Upload source distribution
+                # -------------------------------------------------
+
+                echo "======================================"
+                echo "UPLOADING SOURCE DISTRIBUTION"
+                echo "======================================"
+
+                if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
+
+                    jf rt upload \
+                        "${PACKAGE_DIR}/*.tar.gz" \
+                        "${JFROG_LOCAL_REPO}/" \
+                        --server-id="${JFROG_SERVER}" \
+                        --flat=true
+
+                else
+
+                    echo "No .tar.gz file found."
+
+                fi
+
+
+                # -------------------------------------------------
+                # Publish JFrog Build Info
+                # -------------------------------------------------
+
+                echo "======================================"
+                echo "PUBLISHING JFROG BUILD INFO"
+                echo "======================================"
+
+                jf rt build-publish \
+                    "${JFROG_CLI_BUILD_NAME}" \
+                    "${JFROG_CLI_BUILD_NUMBER}" \
+                    --server-id="${JFROG_SERVER}"
+
+
+                echo "======================================"
+                echo "JFROG PUBLISH COMPLETED"
+                echo "======================================"
+
+                echo "Build Name:"
+                echo "${JFROG_CLI_BUILD_NAME}"
+
+                echo "Build Number:"
+                echo "${JFROG_CLI_BUILD_NUMBER}"
+
+                echo "Repository:"
+                echo "${JFROG_LOCAL_REPO}"
+
+                echo "======================================"
+            '''
+        }
+    }
+}
     }
 
 
