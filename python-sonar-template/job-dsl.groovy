@@ -3,19 +3,27 @@ pipelineJob('python-app-with-sonar') {
     description('''
         Production Python CI/CD Pipeline with SonarQube and JFrog.
 
-        This job is generated using Jenkins Job DSL.
-        The pipeline implementation is maintained in GitHub.
+        Pipeline flow:
+
+        GitHub
+          -> Python Environment
+          -> JFrog Remote/Virtual Dependencies
+          -> Tests
+          -> SonarQube
+          -> Quality Gate
+          -> Python Package
+          -> DEV JFrog Publish
+
+        PROD approval and publishing will be enabled
+        after DEV publishing is validated.
     ''')
 
-    // =========================================================
-    // PARAMETERS
-    // =========================================================
 
     parameters {
 
-        // -----------------------------------------------------
+        // =====================================================
         // GIT
-        // -----------------------------------------------------
+        // =====================================================
 
         stringParam(
             'GIT_URL',
@@ -30,22 +38,22 @@ pipelineJob('python-app-with-sonar') {
         )
 
 
-        // -----------------------------------------------------
+        // =====================================================
         // PYTHON
-        // -----------------------------------------------------
+        // =====================================================
 
         choiceParam(
             'PYTHON_VERSION',
             [
                 'python3'
             ],
-            'Python executable available on the Jenkins agent'
+            'Python executable available on Jenkins agent'
         )
 
 
-        // -----------------------------------------------------
+        // =====================================================
         // ENVIRONMENT
-        // -----------------------------------------------------
+        // =====================================================
 
         choiceParam(
             'ENVIRONMENT',
@@ -66,9 +74,9 @@ pipelineJob('python-app-with-sonar') {
         )
 
 
-        // -----------------------------------------------------
+        // =====================================================
         // PYTHON BUILD
-        // -----------------------------------------------------
+        // =====================================================
 
         stringParam(
             'REQUIREMENTS_FILE',
@@ -83,9 +91,9 @@ pipelineJob('python-app-with-sonar') {
         )
 
 
-        // -----------------------------------------------------
+        // =====================================================
         // SONARQUBE
-        // -----------------------------------------------------
+        // =====================================================
 
         stringParam(
             'SONAR_PROJECT_KEY',
@@ -100,26 +108,26 @@ pipelineJob('python-app-with-sonar') {
         )
 
 
-        // -----------------------------------------------------
+        // =====================================================
         // PROD APPROVAL
-        // -----------------------------------------------------
+        // =====================================================
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
-            'Email address of the PROD approver'
+            'Email address of PROD approver'
         )
 
         stringParam(
             'MANAGER_EMAIL',
             '',
-            'Manager email for PROD notification'
+            'Manager email'
         )
     }
 
 
     // =========================================================
-    // PIPELINE DEFINITION
+    // PIPELINE
     // =========================================================
 
     definition {
