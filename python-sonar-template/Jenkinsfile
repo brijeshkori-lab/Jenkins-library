@@ -512,53 +512,54 @@ Build       : ${BUILD_NUMBER}
         // 7. CONFIGURE JFROG
         // =========================================================
 
-        stage('Configure JFrog') {
+       stage('Configure JFrog') {
 
-            steps {
+    steps {
 
-                withCredentials([
+        withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
 
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
 
-                ]) {
+        ]) {
 
-                    sh '''
-                        set -e
+            sh '''
+                set -e
 
-                        echo "======================================"
-                        echo "CONFIGURING JFROG"
-                        echo "======================================"
+                echo "======================================"
+                echo "CONFIGURING JFROG"
+                echo "======================================"
 
-                        jf config rm "${JFROG_SERVER}" \
-                            --quiet || true
+                jf config rm "${JFROG_SERVER}" \
+                    --quiet || true
 
-                        jf config add "${JFROG_SERVER}" \
-                            --url="${JFROG_URL}" \
-                            --user="${JFROG_USER}" \
-                            --access-token="${JFROG_TOKEN}" \
-                            --interactive=false \
-                            --overwrite=true
+                jf config add "${JFROG_SERVER}" \
+                    --url="${JFROG_URL}/artifactory" \
+                    --user="${JFROG_USER}" \
+                    --access-token="${JFROG_TOKEN}" \
+                    --interactive=false \
+                    --overwrite=true
 
-                        echo "Testing JFrog connection..."
+                jf config use "${JFROG_SERVER}"
 
-                        jf rt ping \
-                            --server-id="${JFROG_SERVER}"
+                echo "Testing JFrog connection..."
 
-                        echo "JFrog connection successful."
+                jf rt ping
 
-                        echo "======================================"
-                    '''
-                }
-            }
+                echo "JFrog connection successful."
+
+                echo "======================================"
+            '''
         }
+    }
+}
 
 
         // =========================================================
@@ -927,123 +928,105 @@ Wheel         : ${env.PYTHON_PACKAGE_FILE}
 
         stage('Collect JFrog Build Information') {
 
-            steps {
+    steps {
 
-                withCredentials([
+        withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
 
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
 
-                ]) {
+        ]) {
 
-                    sh '''
-                        set -e
+            sh '''
+                set -e
 
-                        echo "======================================"
-                        echo "COLLECTING JFROG BUILD INFORMATION"
-                        echo "======================================"
+                echo "======================================"
+                echo "COLLECTING JFROG BUILD INFORMATION"
+                echo "======================================"
 
+                jf rt build-collect-env \
+                    "${JFROG_CLI_BUILD_NAME}" \
+                    "${JFROG_CLI_BUILD_NUMBER}"
 
-                        jf rt build-collect-env \
-                            "${JFROG_CLI_BUILD_NAME}" \
-                            "${JFROG_CLI_BUILD_NUMBER}" \
-                            --server-id="${JFROG_SERVER}"
+                echo "JFrog build environment collected."
 
-
-                        echo "JFrog build environment collected."
-
-                        echo "======================================"
-                    '''
-                }
-            }
+                echo "======================================"
+            '''
         }
+    }
+}
 
 
         // =========================================================
         // 15. PUBLISH PACKAGE
         // =========================================================
 
-        stage('Publish Package to JFrog') {
+       stage('Publish Package to JFrog') {
 
-            steps {
+    steps {
 
-                withCredentials([
+        withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
 
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
 
-                ]) {
+        ]) {
 
-                    sh '''
-                        set -e
+            sh '''
+                set -e
 
-                        echo "======================================"
-                        echo "PUBLISHING PYTHON PACKAGE"
-                        echo "======================================"
+                echo "======================================"
+                echo "PUBLISHING PYTHON PACKAGE"
+                echo "======================================"
 
-                        echo "Project:"
-                        echo "${PROJECT_NAME}"
+                echo "Project:"
+                echo "${PROJECT_NAME}"
 
-                        echo "Version:"
-                        echo "${PYTHON_PACKAGE_VERSION}"
+                echo "Version:"
+                echo "${PYTHON_PACKAGE_VERSION}"
 
-                        echo "Repository:"
-                        echo "${JFROG_LOCAL_REPO}"
-
-
-                        # -------------------------------------------------
-                        # Upload wheel
-                        # -------------------------------------------------
-
-                        jf rt upload \
-                            "dist/*.whl" \
-                            "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
-                            --server-id="${JFROG_SERVER}" \
-                            --flat=true
+                echo "Repository:"
+                echo "${JFROG_LOCAL_REPO}"
 
 
-                        # -------------------------------------------------
-                        # Upload source distribution
-                        # -------------------------------------------------
-
-                        jf rt upload \
-                            "dist/*.tar.gz" \
-                            "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
-                            --server-id="${JFROG_SERVER}" \
-                            --flat=true
+                jf rt upload \
+                    "dist/*.whl" \
+                    "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
+                    --flat=true
 
 
-                        # -------------------------------------------------
-                        # Publish Build Info
-                        # -------------------------------------------------
-
-                        jf rt build-publish \
-                            "${JFROG_CLI_BUILD_NAME}" \
-                            "${JFROG_CLI_BUILD_NUMBER}" \
-                            --server-id="${JFROG_SERVER}"
+                jf rt upload \
+                    "dist/*.tar.gz" \
+                    "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
+                    --flat=true
 
 
-                        echo "======================================"
-                        echo "JFROG PUBLISH COMPLETED"
-                        echo "======================================"
-                    '''
-                }
-            }
+                jf rt build-publish \
+                    "${JFROG_CLI_BUILD_NAME}" \
+                    "${JFROG_CLI_BUILD_NUMBER}"
+
+
+                echo "======================================"
+                echo "JFROG PUBLISH COMPLETED"
+                echo "======================================"
+            '''
         }
+    }
+}
 
 
         // =========================================================
