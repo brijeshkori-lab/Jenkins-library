@@ -736,98 +736,112 @@ ${packageFiles}
 
         stage('Publish DEV Package to JFrog') {
 
-            when {
-
-                expression {
-
-                    params.ENVIRONMENT == 'DEV'
-                }
-            }
-
-
-            steps {
-
-                withCredentials([
-
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
-
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
-                    )
-
-                ]) {
-
-                    sh '''
-                        set -e
-
-                        echo "======================================"
-                        echo "PUBLISHING DEV PACKAGE TO JFROG"
-                        echo "======================================"
-
-                        echo "Repository:"
-                        echo "${JFROG_LOCAL_REPO}"
-
-
-                        echo "Configuring JFrog..."
-
-                        jf c rm artifactory || true
-
-                        jf c add artifactory \
-                            --url="${JFROG_URL}" \
-                            --user="${JFROG_USER}" \
-                            --access-token="${JFROG_TOKEN}" \
-                            --interactive=false \
-                            --overwrite=true
-
-
-                        echo "======================================"
-                        echo "UPLOADING WHEEL"
-                        echo "======================================"
-
-                        jf rt upload \
-                            "${PACKAGE_DIR}/*.whl" \
-                            "${JFROG_LOCAL_REPO}/" \
-                            --flat=true
-
-
-                        echo "======================================"
-                        echo "UPLOADING SOURCE DISTRIBUTION"
-                        echo "======================================"
-
-                        if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
-
-                            jf rt upload \
-                                "${PACKAGE_DIR}/*.tar.gz" \
-                                "${JFROG_LOCAL_REPO}/" \
-                                --flat=true
-
-                        else
-
-                            echo "No .tar.gz file found."
-
-                        fi
-
-
-                        echo "======================================"
-                        echo "VERIFYING JFROG PACKAGE"
-                        echo "======================================"
-
-                        jf rt search \
-                            "${JFROG_LOCAL_REPO}/*" \
-                            --limit=10
-
-
-                        echo "======================================"
-                        echo "DEV PACKAGE PUBLISHED"
-                        echo "======================================"
-                    '''
-                }
-            }
+    when {
+        expression {
+            params.ENVIRONMENT == 'DEV'
         }
+    }
+
+    steps {
+
+        withCredentials([
+
+            string(
+                credentialsId: 'jfrog-user',
+                variable: 'JFROG_USER'
+            ),
+
+            string(
+                credentialsId: 'jfrog-token',
+                variable: 'JFROG_TOKEN'
+            )
+
+        ]) {
+
+            sh '''
+                set -e
+
+                echo "======================================"
+                echo "PUBLISHING DEV PACKAGE TO JFROG"
+                echo "======================================"
+
+                ARTIFACTORY_URL="${JFROG_URL}/artifactory"
+
+                echo "Artifactory URL:"
+                echo "${ARTIFACTORY_URL}"
+
+                echo "Repository:"
+                echo "${JFROG_LOCAL_REPO}"
+
+
+                jf c rm artifactory || true
+
+                jf c add artifactory \
+                    --url="${ARTIFACTORY_URL}" \
+                    --user="${JFROG_USER}" \
+                    --access-token="${JFROG_TOKEN}" \
+                    --interactive=false \
+                    --overwrite=true
+
+
+                echo "======================================"
+                echo "CHECKING REPOSITORY ENDPOINT"
+                echo "======================================"
+
+                curl \
+                    --fail \
+                    --silent \
+                    --show-error \
+                    --head \
+                    --user "${JFROG_USER}:${JFROG_TOKEN}" \
+                    "${ARTIFACTORY_URL}/${JFROG_LOCAL_REPO}/"
+
+
+                echo "Repository endpoint is reachable."
+
+
+                echo "======================================"
+                echo "PACKAGE FILES"
+                echo "======================================"
+
+                ls -lah "${PACKAGE_DIR}"
+
+
+                echo "======================================"
+                echo "UPLOADING WHEEL"
+                echo "======================================"
+
+                jf rt upload \
+                    "${PACKAGE_DIR}/*.whl" \
+                    "${JFROG_LOCAL_REPO}/" \
+                    --flat=true
+
+
+                echo "======================================"
+                echo "UPLOADING SOURCE DISTRIBUTION"
+                echo "======================================"
+
+                if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
+
+                    jf rt upload \
+                        "${PACKAGE_DIR}/*.tar.gz" \
+                        "${JFROG_LOCAL_REPO}/" \
+                        --flat=true
+
+                else
+
+                    echo "No .tar.gz file found."
+
+                fi
+
+
+                echo "======================================"
+                echo "DEV PACKAGE PUBLISHED"
+                echo "======================================"
+            '''
+        }
+    }
+}
 
 
         // =====================================================
