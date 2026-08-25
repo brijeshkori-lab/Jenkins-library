@@ -511,8 +511,7 @@ Build       : ${BUILD_NUMBER}
         // =========================================================
         // 7. CONFIGURE JFROG
         // =========================================================
-
-       stage('Configure JFrog') {
+stage('Configure JFrog') {
 
     steps {
 
@@ -541,13 +540,16 @@ Build       : ${BUILD_NUMBER}
                     --quiet || true
 
                 jf config add "${JFROG_SERVER}" \
-                    --url="${JFROG_URL}/artifactory" \
+                    --url="${JFROG_URL}" \
                     --user="${JFROG_USER}" \
                     --access-token="${JFROG_TOKEN}" \
                     --interactive=false \
                     --overwrite=true
 
                 jf config use "${JFROG_SERVER}"
+
+                echo "Active JFrog server:"
+                jf config show
 
                 echo "Testing JFrog connection..."
 
