@@ -453,45 +453,59 @@ Build       : ${BUILD_NUMBER}
         // 6. PYTHON ENVIRONMENT
         // =========================================================
 
-        stage('Setup Python Environment') {
+       stage('Setup Python Environment') {
 
-            steps {
+    steps {
 
-                sh '''
-                    set -e
+        sh '''
+            set -e
 
-                    echo "======================================"
-                    echo "PYTHON ENVIRONMENT"
-                    echo "======================================"
+            echo "======================================"
+            echo "PYTHON ENVIRONMENT"
+            echo "======================================"
 
-                    command -v "${PYTHON_COMMAND}"
+            command -v "${PYTHON_COMMAND}"
 
-                    "${PYTHON_COMMAND}" --version
+            "${PYTHON_COMMAND}" --version
 
-                    "${PYTHON_COMMAND}" -m pip --version
+            "${PYTHON_COMMAND}" -m pip --version
 
-                    rm -rf "${CI_VENV}"
+            rm -rf "${CI_VENV}"
 
-                    "${PYTHON_COMMAND}" -m venv "${CI_VENV}"
+            "${PYTHON_COMMAND}" -m venv "${CI_VENV}"
 
-                    "${CI_VENV}/bin/python" --version
+            "${CI_VENV}/bin/python" --version
 
-                    "${CI_VENV}/bin/python" -m pip install \
-                        --upgrade pip
+            "${CI_VENV}/bin/python" -m pip install \
+                --upgrade pip
 
-                    echo "Installing CI tooling..."
+            echo "Installing CI tooling..."
 
-                    "${CI_VENV}/bin/python" -m pip install \
-                        pytest \
-                        build \
-                        coverage
+            "${CI_VENV}/bin/python" -m pip install \
+                pytest \
+                pytest-cov \
+                build \
+                coverage
 
-                    echo "======================================"
-                    echo "PYTHON ENVIRONMENT READY"
-                    echo "======================================"
-                '''
-            }
-        }
+            echo "Verifying pytest..."
+
+            "${CI_VENV}/bin/python" -m pytest --version
+
+            echo "Verifying pytest-cov..."
+
+            "${CI_VENV}/bin/python" -m pytest --help | \
+                grep -- '--cov'
+
+            echo "Verifying Python build..."
+
+            "${CI_VENV}/bin/python" -m build --version
+
+            echo "======================================"
+            echo "PYTHON ENVIRONMENT READY"
+            echo "======================================"
+        '''
+    }
+}
 
 
         // =========================================================
@@ -633,74 +647,72 @@ EOF
         // 9. UNIT TESTS + COVERAGE
         // =========================================================
 
-        stage('Unit Tests') {
+       stage('Unit Tests') {
 
-            steps {
+    steps {
 
-                sh '''
-                    set -e
+        sh '''
+            set -e
 
-                    echo "======================================"
-                    echo "PYTHON UNIT TESTS"
-                    echo "======================================"
+            echo "======================================"
+            echo "PYTHON UNIT TESTS"
+            echo "======================================"
 
-                    PYTHON="${CI_VENV}/bin/python"
+            PYTHON="${CI_VENV}/bin/python"
 
-                    export PATH="${WORKSPACE}/${CI_VENV}/bin:${PATH}"
+            export PATH="${WORKSPACE}/${CI_VENV}/bin:${PATH}"
+            export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
-                    export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
+            echo "Python:"
+            "${PYTHON}" --version
 
+            echo "Pytest:"
+            "${PYTHON}" -m pytest --version
 
-                    if [ ! -d tests ]; then
+            echo "Pytest-Cov:"
+            "${PYTHON}" -m pytest_cov --version || true
 
-                        echo "WARNING: tests directory not found."
+            if [ ! -d tests ]; then
 
-                        echo "No tests were discovered."
+                echo "ERROR: tests directory not found."
 
-                        exit 1
+                exit 1
 
-                    fi
+            fi
 
+            mkdir -p test-results
 
-                    "${PYTHON}" -m pytest \
-                        -v \
-                        --cov=. \
-                        --cov-report=xml \
-                        --cov-report=term \
-                        --cov-fail-under=0
+            "${PYTHON}" -m pytest \
+                -v \
+                --junitxml=test-results/pytest-results.xml \
+                --cov=. \
+                --cov-report=xml \
+                --cov-report=term \
+                --cov-fail-under=0
 
+            echo "======================================"
+            echo "UNIT TESTS PASSED"
+            echo "======================================"
+        '''
+    }
 
-                    echo "======================================"
-                    echo "UNIT TESTS PASSED"
-                    echo "======================================"
-                '''
-            }
+    post {
 
+        always {
 
-            post {
+            junit(
+                allowEmptyResults: true,
+                testResults: 'test-results/pytest-results.xml'
+            )
 
-                always {
-
-                    junit(
-
-                        allowEmptyResults: true,
-
-                        testResults:
-                            '**/test-results/*.xml'
-                    )
-
-                    archiveArtifacts(
-
-                        artifacts:
-                            'coverage.xml',
-
-                        allowEmptyArchive: true,
-
-                        fingerprint: true
-                    )
-                }
-            }
+            archiveArtifacts(
+                artifacts: 'coverage.xml',
+                allowEmptyArchive: true,
+                fingerprint: true
+            )
         }
+    }
+}
 
 
         // =========================================================
