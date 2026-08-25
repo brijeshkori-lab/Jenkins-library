@@ -2,197 +2,82 @@ pipeline {
 
     agent any
 
-    parameters {
-
-        // =====================================================
-        // GIT
-        // =====================================================
-
-        string(
-            name: 'GIT_URL',
-            defaultValue: '',
-            description: 'Git URL of the Python application'
-        )
-
-        string(
-            name: 'GIT_BRANCH',
-            defaultValue: 'main',
-            description: 'Git branch to build'
-        )
-
-
-        // =====================================================
-        // PYTHON
-        // =====================================================
-
-        choice(
-            name: 'PYTHON_VERSION',
-            choices: [
-                'python3'
-            ],
-            description: 'Python executable available on Jenkins agent'
-        )
-
-
-        // =====================================================
-        // ENVIRONMENT
-        // =====================================================
-
-        choice(
-            name: 'ENVIRONMENT',
-            choices: [
-                'DEV',
-                'PROD'
-            ],
-            description: 'Target environment'
-        )
-
-        choice(
-            name: 'IS_FINAL_RUN',
-            choices: [
-                'false',
-                'true'
-            ],
-            description: 'Must be true for PROD execution'
-        )
-
-
-        // =====================================================
-        // PYTHON BUILD
-        // =====================================================
-
-        string(
-            name: 'REQUIREMENTS_FILE',
-            defaultValue: 'requirements.txt',
-            description: 'Python dependency file'
-        )
-
-        string(
-            name: 'TEST_COMMAND',
-            defaultValue: 'pytest -v',
-            description: 'Python test command'
-        )
-
-
-        // =====================================================
-        // SONARQUBE
-        // =====================================================
-
-        string(
-            name: 'SONAR_PROJECT_KEY',
-            defaultValue: 'python-app',
-            description: 'SonarQube project key'
-        )
-
-        string(
-            name: 'SONAR_PROJECT_NAME',
-            defaultValue: 'python-app',
-            description: 'SonarQube project name'
-        )
-
-
-        // =====================================================
-        // PROD APPROVAL
-        // =====================================================
-
-        string(
-            name: 'PRIMARY_APPROVER_EMAIL',
-            defaultValue: '',
-            description: 'Email address of PROD approver'
-        )
-
-        string(
-            name: 'MANAGER_EMAIL',
-            defaultValue: '',
-            description: 'Manager email'
-        )
-    }
-
-
-    // =========================================================
-    // ENVIRONMENT
-    // =========================================================
-
     environment {
 
-        // -----------------------------------------------------
-        // SONARQUBE
-        // -----------------------------------------------------
+        // =========================================================
+        // APPLICATION CONFIGURATION
+        // =========================================================
 
-        SONAR_SERVER = 'SonarQubeLocal'
+        // Application URL is template-defined.
+        // Change this when this template is used for another app.
+        PROJECT_URL = 'https://github.com/brijeshkori-lab/python-app-template'
 
-        SONAR_TOKEN_CREDENTIAL = 'sonar-token'
+        GIT_BRANCH = 'main'
 
 
-        // -----------------------------------------------------
-        // JFROG
-        // -----------------------------------------------------
+        // =========================================================
+        // JFROG CLOUD
+        // =========================================================
 
         JFROG_URL = 'https://trialn4vk2g.jfrog.io'
-
-        JFROG_USER_CREDENTIAL = 'jfrog-user'
-
-        JFROG_TOKEN_CREDENTIAL = 'jfrog-token'
 
         JFROG_VIRTUAL_REPO = 'python-virtual'
 
         JFROG_LOCAL_REPO = 'python-local'
 
+        JFROG_REMOTE_REPO = 'python-remote'
+
         JFROG_SERVER = 'python-server'
 
 
-        // -----------------------------------------------------
-        // JFROG BUILD INFO
-        // -----------------------------------------------------
+        // =========================================================
+        // SONARQUBE
+        // =========================================================
 
-        JFROG_CLI_BUILD_NAME = 'python-app'
+        SONAR_SERVER = 'SonarQubeLocal'
+
+
+        // =========================================================
+        // PYTHON
+        // =========================================================
+
+        PYTHON_COMMAND = 'python3'
+
+        CI_VENV = '.ci-venv'
+
+
+        // =========================================================
+        // JFROG BUILD INFO
+        // =========================================================
 
         JFROG_CLI_BUILD_NUMBER = "${BUILD_NUMBER}"
-
-
-        // -----------------------------------------------------
-        // PYTHON
-        // -----------------------------------------------------
-
-        VENV_DIR = '.venv'
-
-        PACKAGE_DIR = 'dist'
     }
 
 
     stages {
 
 
-        // =====================================================
-        // 1. VALIDATE PARAMETERS
-        // =====================================================
+        // =========================================================
+        // 1. PROD SAFETY GUARD
+        // =========================================================
 
-        stage('Validate Parameters') {
+        stage('PROD Safety Guard') {
 
             steps {
 
                 script {
 
-                    if (!params.GIT_URL?.trim()) {
-                        error('GIT_URL is required.')
-                    }
+                    echo """
+====================================================
+PRODUCTION SAFETY CHECK
+====================================================
 
-                    if (!params.GIT_BRANCH?.trim()) {
-                        error('GIT_BRANCH is required.')
-                    }
+Environment : ${params.ENVIRONMENT}
+Final Run   : ${params.IS_FINAL_RUN}
 
-                    if (!params.SONAR_PROJECT_KEY?.trim()) {
-                        error('SONAR_PROJECT_KEY is required.')
-                    }
+====================================================
+"""
 
-                    if (!params.SONAR_PROJECT_NAME?.trim()) {
-                        error('SONAR_PROJECT_NAME is required.')
-                    }
-
-
-                    // -------------------------------------------------
-                    // PROD safety
-                    // -------------------------------------------------
 
                     if (
                         params.ENVIRONMENT == 'PROD' &&
@@ -201,16 +86,20 @@ pipeline {
 
                         error("""
 ====================================================
-PRODUCTION EXECUTION BLOCKED
+PRODUCTION DEPLOYMENT BLOCKED
 ====================================================
 
-Environment : PROD
-Final Run   : ${params.IS_FINAL_RUN}
+PROD deployments require:
 
-PROD requires:
-
-ENVIRONMENT = PROD
+ENVIRONMENT  = PROD
 IS_FINAL_RUN = true
+
+Current values:
+
+ENVIRONMENT  = ${params.ENVIRONMENT}
+IS_FINAL_RUN = ${params.IS_FINAL_RUN}
+
+Please correct the parameters and rerun.
 
 ====================================================
 """)
@@ -218,75 +107,105 @@ IS_FINAL_RUN = true
 
 
                     if (
-                        params.IS_FINAL_RUN == 'true' &&
-                        params.ENVIRONMENT != 'PROD'
+                        params.ENVIRONMENT == 'DEV' &&
+                        params.IS_FINAL_RUN == 'true'
                     ) {
 
                         error("""
 ====================================================
-FINAL RUN BLOCKED
+INVALID FINAL RUN
 ====================================================
 
-IS_FINAL_RUN = true
+IS_FINAL_RUN=true is only allowed for PROD.
 
-But ENVIRONMENT is:
-
+Current environment:
 ${params.ENVIRONMENT}
-
-IS_FINAL_RUN=true is allowed only for PROD.
 
 ====================================================
 """)
                     }
 
 
-                    // -------------------------------------------------
-                    // PROD approval validation
-                    // -------------------------------------------------
+                    echo "PROD SAFETY CHECK PASSED"
+                }
+            }
+        }
 
-                    if (params.ENVIRONMENT == 'PROD') {
 
-                        if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
+        // =========================================================
+        // 2. INITIALIZE
+        // =========================================================
 
-                            error(
-                                'PRIMARY_APPROVER_EMAIL is required for PROD.'
-                            )
-                        }
+        stage('Initialize') {
 
-                        if (!params.MANAGER_EMAIL?.trim()) {
+            steps {
 
-                            error(
-                                'MANAGER_EMAIL is required for PROD.'
-                            )
-                        }
+                script {
+
+                    /*
+                     * Derive project information from PROJECT_URL.
+                     *
+                     * Example:
+                     *
+                     * https://github.com/company/python-app-template
+                     *
+                     * becomes:
+                     *
+                     * python-app-template
+                     */
+
+                    def cleanUrl =
+                        env.PROJECT_URL
+                            .replaceAll(/\/$/, '')
+                            .replaceAll(/\.git$/, '')
+
+
+                    def projectName =
+                        cleanUrl.tokenize('/')[-1]
+
+
+                    if (!projectName?.trim()) {
+
+                        error(
+                            'Unable to derive project name from PROJECT_URL'
+                        )
                     }
+
+
+                    env.PROJECT_NAME = projectName
+
+                    env.PROJECT_FOLDER = projectName
+
+                    env.SONAR_PROJECT_KEY = projectName
+
+                    env.SONAR_PROJECT_NAME = projectName
+
+                    env.JFROG_CLI_BUILD_NAME = projectName
 
 
                     echo """
 ====================================================
-PYTHON + SONARQUBE + JFROG PIPELINE
+PYTHON CI/CD INITIALIZATION
 ====================================================
 
-Git URL              : ${params.GIT_URL}
-Git Branch           : ${params.GIT_BRANCH}
+Project URL        : ${env.PROJECT_URL}
+Git Branch         : ${env.GIT_BRANCH}
 
-Python Version       : ${params.PYTHON_VERSION}
+Project Name       : ${env.PROJECT_NAME}
+Project Folder     : ${env.PROJECT_FOLDER}
 
-Environment          : ${params.ENVIRONMENT}
-Final Run            : ${params.IS_FINAL_RUN}
+Sonar Project Key  : ${env.SONAR_PROJECT_KEY}
+Sonar Project Name : ${env.SONAR_PROJECT_NAME}
 
-Requirements File    : ${params.REQUIREMENTS_FILE}
-Test Command         : ${params.TEST_COMMAND}
+JFrog URL          : ${env.JFROG_URL}
+JFrog Resolve Repo : ${env.JFROG_VIRTUAL_REPO}
+JFrog Deploy Repo  : ${env.JFROG_LOCAL_REPO}
 
-Sonar Project Key    : ${params.SONAR_PROJECT_KEY}
-Sonar Project Name   : ${params.SONAR_PROJECT_NAME}
+JFrog Build Name   : ${env.JFROG_CLI_BUILD_NAME}
+JFrog Build Number : ${env.JFROG_CLI_BUILD_NUMBER}
 
-JFrog URL            : ${env.JFROG_URL}
-JFrog Resolve Repo   : ${env.JFROG_VIRTUAL_REPO}
-JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
-
-JFrog Build Name     : ${env.JFROG_CLI_BUILD_NAME}
-JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
+Environment        : ${params.ENVIRONMENT}
+Final Run          : ${params.IS_FINAL_RUN}
 
 ====================================================
 """
@@ -295,11 +214,246 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
         }
 
 
-        // =====================================================
-        // 2. CHECK PYTHON
-        // =====================================================
+        // =========================================================
+        // 3. FINAL RUN APPROVAL
+        // =========================================================
 
-        stage('Check Python') {
+        stage('Final Run Approval') {
+
+            when {
+
+                expression {
+
+                    params.ENVIRONMENT == 'PROD' &&
+                    params.IS_FINAL_RUN == 'true'
+                }
+            }
+
+
+            steps {
+
+                script {
+
+                    echo """
+====================================================
+PRODUCTION APPROVAL REQUIRED
+====================================================
+
+Project     : ${env.PROJECT_NAME}
+Environment : PROD
+Build       : ${BUILD_NUMBER}
+
+The pipeline requires production approval
+before the final release.
+
+====================================================
+"""
+
+
+                    if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
+
+                        error(
+                            'PRIMARY_APPROVER_EMAIL is required for PROD Final Run.'
+                        )
+                    }
+
+
+                    if (!params.MANAGER_EMAIL?.trim()) {
+
+                        error(
+                            'MANAGER_EMAIL is required for PROD Final Run.'
+                        )
+                    }
+
+
+                    // -------------------------------------------------
+                    // Approval notification
+                    // -------------------------------------------------
+
+                    mail(
+
+                        to: params.PRIMARY_APPROVER_EMAIL,
+
+                        subject:
+                            "PROD APPROVAL REQUIRED - ${env.PROJECT_NAME} #${BUILD_NUMBER}",
+
+                        mimeType: 'text/html',
+
+                        body: """
+
+                            <h2>Production Approval Required</h2>
+
+                            <p>
+                                <b>Project:</b>
+                                ${env.PROJECT_NAME}
+                            </p>
+
+                            <p>
+                                <b>Build:</b>
+                                ${BUILD_NUMBER}
+                            </p>
+
+                            <p>
+                                <b>Environment:</b>
+                                PROD
+                            </p>
+
+                            <p>
+                                <b>SonarQube:</b>
+                                Passed
+                            </p>
+
+                            <p>
+                                Please review and approve the
+                                production release in Jenkins.
+                            </p>
+
+                            <p>
+                                <b>Jenkins Build:</b>
+                                <a href="${BUILD_URL}">
+                                    ${BUILD_URL}
+                                </a>
+                            </p>
+                        """
+                    )
+
+
+                    // -------------------------------------------------
+                    // Jenkins approval
+                    // -------------------------------------------------
+
+                    def approver = input(
+
+                        message: """
+
+====================================================
+PRODUCTION RELEASE APPROVAL
+====================================================
+
+Project:
+${env.PROJECT_NAME}
+
+Build:
+${BUILD_NUMBER}
+
+Environment:
+PROD
+
+SonarQube:
+PASSED
+
+The next stages will publish the Python package
+and perform the production release.
+
+====================================================
+
+""",
+
+                        ok: 'APPROVE PROD RELEASE',
+
+                        submitter: 'admin',
+
+                        submitterParameter: 'APPROVER'
+                    )
+
+
+                    env.APPROVED_BY = approver
+
+
+                    echo """
+====================================================
+PRODUCTION RELEASE APPROVED
+====================================================
+
+Approved By : ${approver}
+Build       : ${BUILD_NUMBER}
+
+====================================================
+"""
+
+
+                    mail(
+
+                        to: params.MANAGER_EMAIL,
+
+                        subject:
+                            "PROD RELEASE APPROVED - ${env.PROJECT_NAME} #${BUILD_NUMBER}",
+
+                        mimeType: 'text/html',
+
+                        body: """
+
+                            <h2>Production Release Approved</h2>
+
+                            <p>
+                                <b>Project:</b>
+                                ${env.PROJECT_NAME}
+                            </p>
+
+                            <p>
+                                <b>Build:</b>
+                                ${BUILD_NUMBER}
+                            </p>
+
+                            <p>
+                                <b>Approved By:</b>
+                                ${approver}
+                            </p>
+
+                            <p>
+                                <b>Environment:</b>
+                                PROD
+                            </p>
+
+                            <p>
+                                <b>Jenkins:</b>
+                                <a href="${BUILD_URL}">
+                                    ${BUILD_URL}
+                                </a>
+                            </p>
+                        """
+                    )
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 4. CLEAN WORKSPACE
+        // =========================================================
+
+        stage('Clean Workspace') {
+
+            steps {
+
+                deleteDir()
+            }
+        }
+
+
+        // =========================================================
+        // 5. CHECKOUT
+        // =========================================================
+
+        stage('Checkout') {
+
+            steps {
+
+                git(
+
+                    url: env.PROJECT_URL,
+
+                    branch: env.GIT_BRANCH
+                )
+            }
+        }
+
+
+        // =========================================================
+        // 6. PYTHON ENVIRONMENT
+        // =========================================================
+
+        stage('Setup Python Environment') {
 
             steps {
 
@@ -307,26 +461,42 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
                     set -e
 
                     echo "======================================"
-                    echo "CHECKING PYTHON"
+                    echo "PYTHON ENVIRONMENT"
                     echo "======================================"
 
-                    command -v "${PYTHON_VERSION}"
+                    command -v "${PYTHON_COMMAND}"
 
-                    "${PYTHON_VERSION}" --version
+                    "${PYTHON_COMMAND}" --version
 
-                    "${PYTHON_VERSION}" -m pip --version
+                    "${PYTHON_COMMAND}" -m pip --version
+
+                    rm -rf "${CI_VENV}"
+
+                    "${PYTHON_COMMAND}" -m venv "${CI_VENV}"
+
+                    "${CI_VENV}/bin/python" --version
+
+                    "${CI_VENV}/bin/python" -m pip install \
+                        --upgrade pip
+
+                    echo "Installing CI tooling..."
+
+                    "${CI_VENV}/bin/python" -m pip install \
+                        pytest \
+                        build \
+                        coverage
 
                     echo "======================================"
-                    echo "PYTHON CHECK PASSED"
+                    echo "PYTHON ENVIRONMENT READY"
                     echo "======================================"
                 '''
             }
         }
 
 
-        // =====================================================
-        // 3. CONFIGURE JFROG
-        // =====================================================
+        // =========================================================
+        // 7. CONFIGURE JFROG
+        // =========================================================
 
         stage('Configure JFrog') {
 
@@ -350,10 +520,11 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
                         set -e
 
                         echo "======================================"
-                        echo "CONFIGURING JFROG CLI"
+                        echo "CONFIGURING JFROG"
                         echo "======================================"
 
-                        jf config rm "${JFROG_SERVER}" --quiet || true
+                        jf config rm "${JFROG_SERVER}" \
+                            --quiet || true
 
                         jf config add "${JFROG_SERVER}" \
                             --url="${JFROG_URL}" \
@@ -362,21 +533,12 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
                             --interactive=false \
                             --overwrite=true
 
-                        echo "JFrog server configured:"
-                        echo "${JFROG_SERVER}"
-
                         echo "Testing JFrog connection..."
 
                         jf rt ping \
                             --server-id="${JFROG_SERVER}"
 
                         echo "JFrog connection successful."
-
-                        echo "Resolve repository:"
-                        echo "${JFROG_VIRTUAL_REPO}"
-
-                        echo "Deploy repository:"
-                        echo "${JFROG_LOCAL_REPO}"
 
                         echo "======================================"
                     '''
@@ -385,78 +547,11 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
         }
 
 
-        // =====================================================
-        // 4. CHECKOUT
-        // =====================================================
+        // =========================================================
+        // 8. INSTALL DEPENDENCIES FROM JFROG
+        // =========================================================
 
-        stage('Checkout') {
-
-            steps {
-
-                deleteDir()
-
-                git(
-                    url: params.GIT_URL,
-                    branch: params.GIT_BRANCH
-                )
-            }
-        }
-
-
-        // =====================================================
-        // 5. CREATE VIRTUAL ENVIRONMENT
-        // =====================================================
-
-        stage('Create Virtual Environment') {
-
-            steps {
-
-                sh '''
-                    set -e
-
-                    echo "======================================"
-                    echo "CREATING PYTHON VIRTUAL ENVIRONMENT"
-                    echo "======================================"
-
-                    rm -rf "${VENV_DIR}"
-
-                    "${PYTHON_VERSION}" -m venv "${VENV_DIR}"
-
-                    echo "Python:"
-                    "${VENV_DIR}/bin/python" --version
-
-                    echo "Pip:"
-                    "${VENV_DIR}/bin/python" -m pip --version
-
-                    echo "Installing build tooling..."
-
-                    "${VENV_DIR}/bin/python" -m pip install \
-                        --upgrade \
-                        pip \
-                        setuptools \
-                        wheel \
-                        build
-
-                    echo "Installing pytest..."
-
-                    "${VENV_DIR}/bin/python" -m pip install pytest
-
-                    echo "pytest:"
-                    "${VENV_DIR}/bin/python" -m pytest --version
-
-                    echo "======================================"
-                    echo "VIRTUAL ENVIRONMENT READY"
-                    echo "======================================"
-                '''
-            }
-        }
-
-
-        // =====================================================
-        // 6. INSTALL DEPENDENCIES FROM JFROG
-        // =====================================================
-
-        stage('Install Dependencies from JFrog') {
+        stage('Install Dependencies') {
 
             steps {
 
@@ -478,27 +573,18 @@ JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
                         set -e
 
                         echo "======================================"
-                        echo "INSTALLING DEPENDENCIES FROM JFROG"
+                        echo "INSTALLING PYTHON DEPENDENCIES"
                         echo "======================================"
 
-                        PYTHON="${VENV_DIR}/bin/python"
+                        PYTHON="${CI_VENV}/bin/python"
 
-                        if [ ! -f "${REQUIREMENTS_FILE}" ]; then
+                        PIP_CONFIG="${WORKSPACE}/${CI_VENV}/pip.conf"
 
-                            echo "No ${REQUIREMENTS_FILE} found."
-
-                            exit 0
-
-                        fi
-
-
-                        PIP_CONFIG="${WORKSPACE}/${VENV_DIR}/pip.conf"
-
-                        cleanup() {
+                        cleanup_pip_config() {
                             rm -f "${PIP_CONFIG}"
                         }
 
-                        trap cleanup EXIT
+                        trap cleanup_pip_config EXIT
 
 
                         cat > "${PIP_CONFIG}" <<EOF
@@ -509,20 +595,33 @@ EOF
                         export PIP_CONFIG_FILE="${PIP_CONFIG}"
 
 
-                        echo "Python:"
-                        "${PYTHON}" --version
+                        if [ -f requirements.txt ]; then
 
-                        echo "Pip:"
-                        "${PYTHON}" -m pip --version
+                            echo "Found requirements.txt"
 
-                        echo "Installing dependencies..."
+                            "${PYTHON}" -m pip install \
+                                -r requirements.txt
 
-                        "${PYTHON}" -m pip install \
-                            -r "${REQUIREMENTS_FILE}"
+
+                        elif [ -f pyproject.toml ]; then
+
+                            echo "Found pyproject.toml"
+
+                            "${PYTHON}" -m pip install \
+                                .
+
+
+                        else
+
+                            echo "No requirements.txt or pyproject.toml found."
+
+                            echo "Continuing with project without external dependencies."
+
+                        fi
 
 
                         echo "======================================"
-                        echo "DEPENDENCIES INSTALLED SUCCESSFULLY"
+                        echo "DEPENDENCIES INSTALLED"
                         echo "======================================"
                     '''
                 }
@@ -530,11 +629,11 @@ EOF
         }
 
 
-        // =====================================================
-        // 7. TEST
-        // =====================================================
+        // =========================================================
+        // 9. UNIT TESTS + COVERAGE
+        // =========================================================
 
-        stage('Test') {
+        stage('Unit Tests') {
 
             steps {
 
@@ -542,151 +641,71 @@ EOF
                     set -e
 
                     echo "======================================"
-                    echo "RUNNING PYTHON TESTS"
+                    echo "PYTHON UNIT TESTS"
                     echo "======================================"
 
-                    PYTHON="${VENV_DIR}/bin/python"
+                    PYTHON="${CI_VENV}/bin/python"
 
-                    export PATH="${VENV_DIR}/bin:${PATH}"
+                    export PATH="${WORKSPACE}/${CI_VENV}/bin:${PATH}"
 
                     export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
-                    "${PYTHON}" --version
 
-                    "${PYTHON}" -m pytest --version
+                    if [ ! -d tests ]; then
 
-                    echo "PYTHONPATH:"
-                    echo "${PYTHONPATH}"
+                        echo "WARNING: tests directory not found."
 
-                    echo "Test command:"
-                    echo "${TEST_COMMAND}"
+                        echo "No tests were discovered."
 
-                    ${TEST_COMMAND}
+                        exit 1
+
+                    fi
+
+
+                    "${PYTHON}" -m pytest \
+                        -v \
+                        --cov=. \
+                        --cov-report=xml \
+                        --cov-report=term \
+                        --cov-fail-under=0
+
 
                     echo "======================================"
-                    echo "PYTHON TESTS PASSED"
+                    echo "UNIT TESTS PASSED"
                     echo "======================================"
                 '''
             }
-        }
 
 
-        // =====================================================
-        // 8. SONARQUBE SCAN
-        // =====================================================
+            post {
 
-        stage('SonarQube Scan') {
+                always {
 
-            steps {
+                    junit(
 
-                script {
+                        allowEmptyResults: true,
 
-                    def scannerHome = tool 'SonarQubeLocal'
+                        testResults:
+                            '**/test-results/*.xml'
+                    )
 
+                    archiveArtifacts(
 
-                    withCredentials([
+                        artifacts:
+                            'coverage.xml',
 
-                        string(
-                            credentialsId: 'sonar-token',
-                            variable: 'SONAR_TOKEN'
-                        )
+                        allowEmptyArchive: true,
 
-                    ]) {
-
-                        withSonarQubeEnv('SonarQubeLocal') {
-
-                            withEnv([
-
-                                "SONAR_SCANNER_HOME=${scannerHome}",
-
-                                "SONAR_PROJECT_KEY=${params.SONAR_PROJECT_KEY}",
-
-                                "SONAR_PROJECT_NAME=${params.SONAR_PROJECT_NAME}"
-
-                            ]) {
-
-                                sh '''
-                                    set -e
-
-                                    echo "======================================"
-                                    echo "SONARQUBE ANALYSIS"
-                                    echo "======================================"
-
-                                    echo "SonarQube URL:"
-                                    echo "${SONAR_HOST_URL}"
-
-                                    "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
-                                        --version
-
-
-                                    "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
-                                        -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-                                        -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
-                                        -Dsonar.projectVersion="${BUILD_NUMBER}" \
-                                        -Dsonar.sources=. \
-                                        -Dsonar.sourceEncoding=UTF-8 \
-                                        -Dsonar.exclusions="**/.venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**,**/dist/**,**/build/**"
-
-
-                                    echo "======================================"
-                                    echo "SONARQUBE SCAN COMPLETED"
-                                    echo "======================================"
-                                '''
-                            }
-                        }
-                    }
+                        fingerprint: true
+                    )
                 }
             }
         }
 
 
-        // =====================================================
-        // 9. QUALITY GATE
-        // =====================================================
-
-        stage('SonarQube Quality Gate') {
-
-            steps {
-
-                timeout(
-                    time: 10,
-                    unit: 'MINUTES'
-                ) {
-
-                    script {
-
-                        echo "======================================"
-                        echo "SONARQUBE QUALITY GATE"
-                        echo "======================================"
-
-                        def qualityGate = waitForQualityGate(
-                            abortPipeline: false
-                        )
-
-                        echo "Quality Gate:"
-                        echo "${qualityGate.status}"
-
-
-                        if (qualityGate.status != 'OK') {
-
-                            error(
-                                "SonarQube Quality Gate FAILED: ${qualityGate.status}"
-                            )
-                        }
-
-
-                        echo "======================================"
-                        echo "SONARQUBE QUALITY GATE PASSED"
-                        echo "======================================"
-                    }
-                }
-            }
-        }
-
-
-        // =====================================================
+        // =========================================================
         // 10. BUILD PYTHON PACKAGE
-        // =====================================================
+        // =========================================================
 
         stage('Build Python Package') {
 
@@ -699,9 +718,9 @@ EOF
                     echo "BUILDING PYTHON PACKAGE"
                     echo "======================================"
 
-                    PYTHON="${VENV_DIR}/bin/python"
+                    PYTHON="${CI_VENV}/bin/python"
 
-                    rm -rf "${PACKAGE_DIR}"
+                    rm -rf dist build *.egg-info
 
                     "${PYTHON}" -m build
 
@@ -709,19 +728,37 @@ EOF
                     echo "BUILD OUTPUT"
                     echo "======================================"
 
-                    ls -lah "${PACKAGE_DIR}"
+                    ls -lah dist
 
-                    echo "======================================"
-                    echo "PACKAGE BUILD COMPLETED"
+                    if ! ls dist/*.whl >/dev/null 2>&1; then
+
+                        echo "ERROR: Python wheel was not generated."
+
+                        exit 1
+
+                    fi
+
+
+                    if ! ls dist/*.tar.gz >/dev/null 2>&1; then
+
+                        echo "ERROR: Python source distribution was not generated."
+
+                        exit 1
+
+                    fi
+
+
+                    echo "Python package build completed."
+
                     echo "======================================"
                 '''
             }
         }
 
 
-        // =====================================================
+        // =========================================================
         // 11. READ PACKAGE VERSION
-        // =====================================================
+        // =========================================================
 
         stage('Read Package Version') {
 
@@ -731,23 +768,43 @@ EOF
 
                     def wheelFile = sh(
 
-                        script: """
-                            ls ${PACKAGE_DIR}/*.whl
-                        """,
+                        script:
+                            "ls dist/*.whl | head -1",
 
                         returnStdout: true
                     ).trim()
 
 
-                    if (!wheelFile) {
+                    def wheelName =
+                        wheelFile.tokenize('/')[-1]
+
+
+                    /*
+                     * Python wheel format:
+                     *
+                     * name-version-python-abi-platform.whl
+                     */
+
+                    def wheelParts =
+                        wheelName.tokenize('-')
+
+
+                    if (wheelParts.size() < 2) {
 
                         error(
-                            'No Python wheel found in dist/.'
+                            "Unable to determine package version from ${wheelName}"
                         )
                     }
 
 
-                    env.PYTHON_PACKAGE_FILE = wheelFile
+                    env.PYTHON_PACKAGE_FILE =
+                        wheelFile
+
+                    env.PYTHON_PACKAGE_NAME =
+                        wheelParts[0]
+
+                    env.PYTHON_PACKAGE_VERSION =
+                        wheelParts[1]
 
 
                     echo """
@@ -755,7 +812,10 @@ EOF
 PYTHON PACKAGE
 ====================================================
 
-${wheelFile}
+Package       : ${env.PYTHON_PACKAGE_NAME}
+Version       : ${env.PYTHON_PACKAGE_VERSION}
+
+Wheel         : ${env.PYTHON_PACKAGE_FILE}
 
 ====================================================
 """
@@ -764,17 +824,377 @@ ${wheelFile}
         }
 
 
-        // =====================================================
-        // 12. PROD APPROVAL
-        // =====================================================
+        // =========================================================
+        // 12. SONARQUBE ANALYSIS
+        // =========================================================
 
-        stage('PROD Approval') {
+        stage('SonarQube Analysis') {
+
+            steps {
+
+                script {
+
+                    def scannerHome = tool(
+                        'SonarQubeLocal'
+                    )
+
+
+                    withSonarQubeEnv(
+                        env.SONAR_SERVER
+                    ) {
+
+                        withCredentials([
+
+                            string(
+                                credentialsId: 'sonar-token',
+                                variable: 'SONAR_TOKEN'
+                            )
+
+                        ]) {
+
+                            sh '''
+                                set -e
+
+                                echo "======================================"
+                                echo "SONARQUBE ANALYSIS"
+                                echo "======================================"
+
+                                echo "Project:"
+                                echo "${SONAR_PROJECT_NAME}"
+
+                                echo "Project Key:"
+                                echo "${SONAR_PROJECT_KEY}"
+
+
+                                "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
+                                    -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                                    -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
+                                    -Dsonar.projectVersion="${PYTHON_PACKAGE_VERSION}" \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.sourceEncoding=UTF-8 \
+                                    -Dsonar.token="${SONAR_TOKEN}" \
+                                    -Dsonar.exclusions="**/.venv/**,**/.ci-venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**,**/dist/**,**/build/**"
+
+                                echo "======================================"
+                                echo "SONARQUBE ANALYSIS COMPLETED"
+                                echo "======================================"
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 13. SONARQUBE QUALITY GATE
+        // =========================================================
+
+        stage('SonarQube Quality Gate') {
+
+            steps {
+
+                timeout(
+                    time: 5,
+                    unit: 'MINUTES'
+                ) {
+
+                    waitForQualityGate(
+                        abortPipeline: true
+                    )
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 14. JFROG BUILD ENVIRONMENT
+        // =========================================================
+
+        stage('Collect JFrog Build Information') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: 'jfrog-user',
+                        variable: 'JFROG_USER'
+                    ),
+
+                    string(
+                        credentialsId: 'jfrog-token',
+                        variable: 'JFROG_TOKEN'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "COLLECTING JFROG BUILD INFORMATION"
+                        echo "======================================"
+
+
+                        jf rt build-collect-env \
+                            "${JFROG_CLI_BUILD_NAME}" \
+                            "${JFROG_CLI_BUILD_NUMBER}" \
+                            --server-id="${JFROG_SERVER}"
+
+
+                        echo "JFrog build environment collected."
+
+                        echo "======================================"
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 15. PUBLISH PACKAGE
+        // =========================================================
+
+        stage('Publish Package to JFrog') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: 'jfrog-user',
+                        variable: 'JFROG_USER'
+                    ),
+
+                    string(
+                        credentialsId: 'jfrog-token',
+                        variable: 'JFROG_TOKEN'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "PUBLISHING PYTHON PACKAGE"
+                        echo "======================================"
+
+                        echo "Project:"
+                        echo "${PROJECT_NAME}"
+
+                        echo "Version:"
+                        echo "${PYTHON_PACKAGE_VERSION}"
+
+                        echo "Repository:"
+                        echo "${JFROG_LOCAL_REPO}"
+
+
+                        # -------------------------------------------------
+                        # Upload wheel
+                        # -------------------------------------------------
+
+                        jf rt upload \
+                            "dist/*.whl" \
+                            "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
+                            --server-id="${JFROG_SERVER}" \
+                            --flat=true
+
+
+                        # -------------------------------------------------
+                        # Upload source distribution
+                        # -------------------------------------------------
+
+                        jf rt upload \
+                            "dist/*.tar.gz" \
+                            "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/" \
+                            --server-id="${JFROG_SERVER}" \
+                            --flat=true
+
+
+                        # -------------------------------------------------
+                        # Publish Build Info
+                        # -------------------------------------------------
+
+                        jf rt build-publish \
+                            "${JFROG_CLI_BUILD_NAME}" \
+                            "${JFROG_CLI_BUILD_NUMBER}" \
+                            --server-id="${JFROG_SERVER}"
+
+
+                        echo "======================================"
+                        echo "JFROG PUBLISH COMPLETED"
+                        echo "======================================"
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 16. JFROG XRAY
+        // =========================================================
+
+        stage('Xray Scan') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: 'jfrog-user',
+                        variable: 'JFROG_USER'
+                    ),
+
+                    string(
+                        credentialsId: 'jfrog-token',
+                        variable: 'JFROG_TOKEN'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "JFROG XRAY SCAN"
+                        echo "======================================"
+
+                        echo "Scanning:"
+                        echo "${JFROG_CLI_BUILD_NAME}"
+
+                        echo "Build:"
+                        echo "${JFROG_CLI_BUILD_NUMBER}"
+
+
+                        jf rt build-scan \
+                            "${JFROG_CLI_BUILD_NAME}" \
+                            "${JFROG_CLI_BUILD_NUMBER}" \
+                            --server-id="${JFROG_SERVER}"
+
+
+                        echo "======================================"
+                        echo "XRAY SCAN COMPLETED"
+                        echo "======================================"
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 17. SBOM
+        // =========================================================
+
+        stage('Generate SBOM') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "======================================"
+                    echo "GENERATING PYTHON SBOM"
+                    echo "======================================"
+
+                    PYTHON="${CI_VENV}/bin/python"
+
+
+                    "${PYTHON}" -m pip install \
+                        cyclonedx-bom
+
+
+                    "${CI_VENV}/bin/cyclonedx-py" \
+                        environment \
+                        --output-format json \
+                        --output-file cyclonedx-sbom.json
+
+
+                    echo "SBOM generated."
+
+                    ls -lah cyclonedx-sbom.json
+
+                    echo "======================================"
+                '''
+            }
+
+            post {
+
+                always {
+
+                    archiveArtifacts(
+
+                        artifacts:
+                            'cyclonedx-sbom.json',
+
+                        allowEmptyArchive: true,
+
+                        fingerprint: true
+                    )
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 18. PUBLISH SBOM TO JFROG
+        // =========================================================
+
+        stage('Publish SBOM') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: 'jfrog-user',
+                        variable: 'JFROG_USER'
+                    ),
+
+                    string(
+                        credentialsId: 'jfrog-token',
+                        variable: 'JFROG_TOKEN'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "PUBLISHING SBOM"
+                        echo "======================================"
+
+
+                        jf rt upload \
+                            "cyclonedx-sbom.json" \
+                            "${JFROG_LOCAL_REPO}/${PROJECT_NAME}/${PYTHON_PACKAGE_VERSION}/sbom/" \
+                            --server-id="${JFROG_SERVER}" \
+                            --flat=true
+
+
+                        echo "SBOM published."
+
+                        echo "======================================"
+                    '''
+                }
+            }
+        }
+
+
+        // =========================================================
+        // 19. FINAL RUN RELEASE
+        // =========================================================
+
+        stage('Production Release') {
 
             when {
 
                 expression {
 
-                    params.ENVIRONMENT == 'PROD'
+                    params.ENVIRONMENT == 'PROD' &&
+                    params.IS_FINAL_RUN == 'true'
                 }
             }
 
@@ -785,356 +1205,48 @@ ${wheelFile}
 
                     echo """
 ====================================================
-PRODUCTION APPROVAL REQUIRED
+PRODUCTION RELEASE
 ====================================================
 
-Project       : ${params.SONAR_PROJECT_NAME}
-Build         : ${BUILD_NUMBER}
-Environment   : PROD
+Project       : ${env.PROJECT_NAME}
+Version       : ${env.PYTHON_PACKAGE_VERSION}
+Approved By   : ${env.APPROVED_BY}
 
-Package       : ${env.PYTHON_PACKAGE_FILE}
-
-SonarQube     : PASSED
-Quality Gate  : PASSED
-
-The package will NOT be published until
-production approval is granted.
+JFrog Repo    : ${env.JFROG_LOCAL_REPO}
 
 ====================================================
 """
 
 
-                    // -------------------------------------------------
-                    // Approval email
-                    // -------------------------------------------------
-
-                    mail(
-
-                        to: params.PRIMARY_APPROVER_EMAIL,
-
-                        subject:
-                            "PROD APPROVAL REQUIRED - ${params.SONAR_PROJECT_NAME} #${BUILD_NUMBER}",
-
-                        mimeType: 'text/html',
-
-                        body: """
-
-                            <h2>Production Approval Required</h2>
-
-                            <p>
-                                <b>Project:</b>
-                                ${params.SONAR_PROJECT_NAME}
-                            </p>
-
-                            <p>
-                                <b>Build:</b>
-                                ${BUILD_NUMBER}
-                            </p>
-
-                            <p>
-                                <b>Environment:</b>
-                                PROD
-                            </p>
-
-                            <p>
-                                <b>Package:</b>
-                                ${env.PYTHON_PACKAGE_FILE}
-                            </p>
-
-                            <p>
-                                <b>SonarQube:</b>
-                                PASSED
-                            </p>
-
-                            <p>
-                                <b>Quality Gate:</b>
-                                PASSED
-                            </p>
-
-                            <p>
-                                <b>Jenkins Build:</b>
-                                <a href="${BUILD_URL}">
-                                    ${BUILD_URL}
-                                </a>
-                            </p>
-
-                            <p>
-                                Please review and approve the
-                                production release in Jenkins.
-                            </p>
-                        """
-                    )
+                    /*
+                     * At this point:
+                     *
+                     * 1. Tests passed
+                     * 2. SonarQube passed
+                     * 3. Quality Gate passed
+                     * 4. Package built
+                     * 5. JFrog Build Info published
+                     * 6. Xray completed
+                     * 7. SBOM generated
+                     * 8. PROD approval received
+                     *
+                     * The package is already stored in JFrog.
+                     *
+                     * This stage represents the controlled
+                     * production release point.
+                     */
 
 
-                    // -------------------------------------------------
-                    // Jenkins approval
-                    // -------------------------------------------------
-
-                    def approver = input(
-
-                        message: """
-
-====================================================
-PRODUCTION RELEASE APPROVAL
-====================================================
-
-Project     : ${params.SONAR_PROJECT_NAME}
-Build       : ${BUILD_NUMBER}
-Environment : PROD
-
-Package:
-${env.PYTHON_PACKAGE_FILE}
-
-SonarQube:
-PASSED
-
-Quality Gate:
-PASSED
-
-The next stage will publish this package
-to JFrog python-local.
-
-====================================================
-
-""",
-
-                        ok: 'APPROVE PROD RELEASE',
-
-                        submitter:
-                            'primary-approver,admin,devops-admin',
-
-                        submitterParameter:
-                            'APPROVER'
-                    )
-
-
-                    env.APPROVED_BY = approver
-
-
-                    echo """
-====================================================
-PRODUCTION RELEASE APPROVED
-====================================================
-
-Approved By : ${approver}
-Build       : ${BUILD_NUMBER}
-
-====================================================
-"""
-
-
-                    // -------------------------------------------------
-                    // Manager notification
-                    // -------------------------------------------------
-
-                    mail(
-
-                        to: params.MANAGER_EMAIL,
-
-                        subject:
-                            "PROD RELEASE APPROVED - ${params.SONAR_PROJECT_NAME} #${BUILD_NUMBER}",
-
-                        mimeType: 'text/html',
-
-                        body: """
-
-                            <h2>Production Release Approved</h2>
-
-                            <p>
-                                <b>Project:</b>
-                                ${params.SONAR_PROJECT_NAME}
-                            </p>
-
-                            <p>
-                                <b>Build:</b>
-                                ${BUILD_NUMBER}
-                            </p>
-
-                            <p>
-                                <b>Approved By:</b>
-                                ${approver}
-                            </p>
-
-                            <p>
-                                <b>Package:</b>
-                                ${env.PYTHON_PACKAGE_FILE}
-                            </p>
-
-                            <p>
-                                <b>Jenkins Build:</b>
-                                <a href="${BUILD_URL}">
-                                    ${BUILD_URL}
-                                </a>
-                            </p>
-
-                        """
-                    )
+                    echo "Production release completed."
                 }
             }
         }
-
-
-        // =====================================================
-        // 13. PUBLISH TO JFROG
-        // =====================================================
-
-        stage('Publish Package to JFrog') {
-
-    when {
-
-        expression {
-
-            params.ENVIRONMENT == 'DEV' ||
-            params.ENVIRONMENT == 'PROD'
-        }
-    }
-
-    steps {
-
-        withCredentials([
-
-            string(
-                credentialsId: 'jfrog-user',
-                variable: 'JFROG_USER'
-            ),
-
-            string(
-                credentialsId: 'jfrog-token',
-                variable: 'JFROG_TOKEN'
-            )
-
-        ]) {
-
-            sh '''
-                set -e
-
-                echo "======================================"
-                echo "PUBLISHING PYTHON PACKAGE TO JFROG"
-                echo "======================================"
-
-                echo "Environment:"
-                echo "${ENVIRONMENT}"
-
-                echo "Repository:"
-                echo "${JFROG_LOCAL_REPO}"
-
-                echo "Package:"
-                echo "${PYTHON_PACKAGE_FILE}"
-
-
-                # -------------------------------------------------
-                # Configure JFrog
-                # -------------------------------------------------
-
-                jf config rm "${JFROG_SERVER}" --quiet || true
-
-                jf config add "${JFROG_SERVER}" \
-                    --url="${JFROG_URL}" \
-                    --user="${JFROG_USER}" \
-                    --access-token="${JFROG_TOKEN}" \
-                    --interactive=false \
-                    --overwrite=true
-
-
-                # -------------------------------------------------
-                # Verify JFrog connection
-                # -------------------------------------------------
-
-                echo "======================================"
-                echo "VERIFYING JFROG CONNECTION"
-                echo "======================================"
-
-                jf rt ping \
-                    --server-id="${JFROG_SERVER}"
-
-
-                # -------------------------------------------------
-                # Verify package files
-                # -------------------------------------------------
-
-                echo "======================================"
-                echo "PACKAGE FILES"
-                echo "======================================"
-
-                ls -lah "${PACKAGE_DIR}"
-
-
-                # -------------------------------------------------
-                # Upload wheel
-                # -------------------------------------------------
-
-                echo "======================================"
-                echo "UPLOADING WHEEL"
-                echo "======================================"
-
-                jf rt upload \
-                    "${PACKAGE_DIR}/*.whl" \
-                    "${JFROG_LOCAL_REPO}/" \
-                    --server-id="${JFROG_SERVER}" \
-                    --flat=true
-
-
-                # -------------------------------------------------
-                # Upload source distribution
-                # -------------------------------------------------
-
-                echo "======================================"
-                echo "UPLOADING SOURCE DISTRIBUTION"
-                echo "======================================"
-
-                if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
-
-                    jf rt upload \
-                        "${PACKAGE_DIR}/*.tar.gz" \
-                        "${JFROG_LOCAL_REPO}/" \
-                        --server-id="${JFROG_SERVER}" \
-                        --flat=true
-
-                else
-
-                    echo "No .tar.gz file found."
-
-                fi
-
-
-                # -------------------------------------------------
-                # Publish JFrog Build Info
-                # -------------------------------------------------
-
-                echo "======================================"
-                echo "PUBLISHING JFROG BUILD INFO"
-                echo "======================================"
-
-                jf rt build-publish \
-                    "${JFROG_CLI_BUILD_NAME}" \
-                    "${JFROG_CLI_BUILD_NUMBER}" \
-                    --server-id="${JFROG_SERVER}"
-
-
-                echo "======================================"
-                echo "JFROG PUBLISH COMPLETED"
-                echo "======================================"
-
-                echo "Build Name:"
-                echo "${JFROG_CLI_BUILD_NAME}"
-
-                echo "Build Number:"
-                echo "${JFROG_CLI_BUILD_NUMBER}"
-
-                echo "Repository:"
-                echo "${JFROG_LOCAL_REPO}"
-
-                echo "======================================"
-            '''
-        }
-    }
-}
     }
 
 
-    // =========================================================
+    // =============================================================
     // POST ACTIONS
-    // =========================================================
+    // =============================================================
 
     post {
 
@@ -1142,15 +1254,21 @@ Build       : ${BUILD_NUMBER}
 
             echo """
 ====================================================
-PYTHON + SONARQUBE + JFROG PIPELINE SUCCESS
+PYTHON PIPELINE SUCCESS
 ====================================================
 
-Project     : ${params.SONAR_PROJECT_NAME}
-Environment : ${params.ENVIRONMENT}
-Build       : ${BUILD_NUMBER}
+Project       : ${env.PROJECT_NAME}
+Build         : ${BUILD_NUMBER}
+Environment   : ${params.ENVIRONMENT}
 
-JFrog Build : ${env.JFROG_CLI_BUILD_NAME}
-JFrog Number: ${env.JFROG_CLI_BUILD_NUMBER}
+Package       : ${env.PYTHON_PACKAGE_NAME}
+Version       : ${env.PYTHON_PACKAGE_VERSION}
+
+SonarQube     : PASSED
+Quality Gate  : PASSED
+JFrog         : PUBLISHED
+Xray          : COMPLETED
+SBOM          : GENERATED
 
 ====================================================
 """
@@ -1161,14 +1279,30 @@ JFrog Number: ${env.JFROG_CLI_BUILD_NUMBER}
 
             echo """
 ====================================================
-PYTHON + SONARQUBE + JFROG PIPELINE FAILED
+PYTHON PIPELINE FAILED
 ====================================================
 
-Project     : ${params.SONAR_PROJECT_NAME}
-Environment : ${params.ENVIRONMENT}
+Project     : ${env.PROJECT_NAME}
 Build       : ${BUILD_NUMBER}
+Environment : ${params.ENVIRONMENT}
 
-Please check the failed stage.
+Check the failed stage and Jenkins console.
+
+====================================================
+"""
+        }
+
+
+        aborted {
+
+            echo """
+====================================================
+PYTHON PIPELINE ABORTED
+====================================================
+
+Project     : ${env.PROJECT_NAME}
+Build       : ${BUILD_NUMBER}
+Environment : ${params.ENVIRONMENT}
 
 ====================================================
 """
@@ -1178,9 +1312,12 @@ Please check the failed stage.
         always {
 
             sh '''
+                rm -rf .ci-venv || true
                 rm -rf .venv || true
                 rm -rf __pycache__ || true
                 rm -rf .pytest_cache || true
+                rm -rf build || true
+                rm -rf *.egg-info || true
             '''
         }
     }
