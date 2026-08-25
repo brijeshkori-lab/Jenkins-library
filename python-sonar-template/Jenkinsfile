@@ -842,60 +842,62 @@ Wheel         : ${env.PYTHON_PACKAGE_FILE}
 
         stage('SonarQube Analysis') {
 
-            steps {
+    steps {
 
-                script {
+        script {
 
-                    def scannerHome = tool(
-                        'SonarQubeLocal'
+            def scannerHome = tool(
+                name: 'SonarQubeLocal'
+            )
+
+            withSonarQubeEnv('SonarQubeLocal') {
+
+                withCredentials([
+                    string(
+                        credentialsId: 'sonar-token',
+                        variable: 'SONAR_TOKEN'
                     )
+                ]) {
 
+                    withEnv([
+                        "SCANNER_HOME=${scannerHome}"
+                    ]) {
 
-                    withSonarQubeEnv(
-                        env.SONAR_SERVER
-                    ) {
+                        sh '''
+                            set -e
 
-                        withCredentials([
+                            echo "======================================"
+                            echo "SONARQUBE ANALYSIS"
+                            echo "======================================"
 
-                            string(
-                                credentialsId: 'sonar-token',
-                                variable: 'SONAR_TOKEN'
-                            )
+                            echo "Project:"
+                            echo "${SONAR_PROJECT_NAME}"
 
-                        ]) {
+                            echo "Project Key:"
+                            echo "${SONAR_PROJECT_KEY}"
 
-                            sh '''
-                                set -e
+                            echo "Scanner:"
+                            echo "${SCANNER_HOME}/bin/sonar-scanner"
 
-                                echo "======================================"
-                                echo "SONARQUBE ANALYSIS"
-                                echo "======================================"
+                            "${SCANNER_HOME}/bin/sonar-scanner" \
+                                -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                                -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
+                                -Dsonar.projectVersion="${PYTHON_PACKAGE_VERSION}" \
+                                -Dsonar.sources=. \
+                                -Dsonar.sourceEncoding=UTF-8 \
+                                -Dsonar.token="${SONAR_TOKEN}" \
+                                -Dsonar.exclusions="**/.venv/**,**/.ci-venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**,**/dist/**,**/build/**"
 
-                                echo "Project:"
-                                echo "${SONAR_PROJECT_NAME}"
-
-                                echo "Project Key:"
-                                echo "${SONAR_PROJECT_KEY}"
-
-
-                                "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
-                                    -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-                                    -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
-                                    -Dsonar.projectVersion="${PYTHON_PACKAGE_VERSION}" \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.sourceEncoding=UTF-8 \
-                                    -Dsonar.token="${SONAR_TOKEN}" \
-                                    -Dsonar.exclusions="**/.venv/**,**/.ci-venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**,**/dist/**,**/build/**"
-
-                                echo "======================================"
-                                echo "SONARQUBE ANALYSIS COMPLETED"
-                                echo "======================================"
-                            '''
-                        }
+                            echo "======================================"
+                            echo "SONARQUBE ANALYSIS COMPLETED"
+                            echo "======================================"
+                        '''
                     }
                 }
             }
         }
+    }
+}
 
 
         // =========================================================
