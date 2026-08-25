@@ -3,27 +3,21 @@ pipelineJob('python-app-with-sonar') {
     description('''
         Production Python CI/CD Pipeline with SonarQube and JFrog.
 
-        Pipeline flow:
+        Pipeline:
 
         GitHub
-          -> Python Environment
-          -> JFrog Remote/Virtual Dependencies
+          -> Python environment
+          -> JFrog python-virtual dependencies
           -> Tests
           -> SonarQube
           -> Quality Gate
-          -> Python Package
-          -> DEV JFrog Publish
-
-        PROD approval and publishing will be enabled
-        after DEV publishing is validated.
+          -> Package
+          -> DEV: automatic JFrog publish
+          -> PROD: approval -> JFrog publish
+          -> JFrog Build Info
     ''')
 
-
     parameters {
-
-        // =====================================================
-        // GIT
-        // =====================================================
 
         stringParam(
             'GIT_URL',
@@ -37,11 +31,6 @@ pipelineJob('python-app-with-sonar') {
             'Git branch to build'
         )
 
-
-        // =====================================================
-        // PYTHON
-        // =====================================================
-
         choiceParam(
             'PYTHON_VERSION',
             [
@@ -49,11 +38,6 @@ pipelineJob('python-app-with-sonar') {
             ],
             'Python executable available on Jenkins agent'
         )
-
-
-        // =====================================================
-        // ENVIRONMENT
-        // =====================================================
 
         choiceParam(
             'ENVIRONMENT',
@@ -73,11 +57,6 @@ pipelineJob('python-app-with-sonar') {
             'Must be true for PROD execution'
         )
 
-
-        // =====================================================
-        // PYTHON BUILD
-        // =====================================================
-
         stringParam(
             'REQUIREMENTS_FILE',
             'requirements.txt',
@@ -90,11 +69,6 @@ pipelineJob('python-app-with-sonar') {
             'Python test command'
         )
 
-
-        // =====================================================
-        // SONARQUBE
-        // =====================================================
-
         stringParam(
             'SONAR_PROJECT_KEY',
             'python-app',
@@ -106,11 +80,6 @@ pipelineJob('python-app-with-sonar') {
             'python-app',
             'SonarQube project name'
         )
-
-
-        // =====================================================
-        // PROD APPROVAL
-        // =====================================================
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
@@ -125,10 +94,6 @@ pipelineJob('python-app-with-sonar') {
         )
     }
 
-
-    // =========================================================
-    // PIPELINE
-    // =========================================================
 
     definition {
 

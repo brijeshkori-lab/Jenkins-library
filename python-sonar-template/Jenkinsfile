@@ -138,6 +138,17 @@ pipeline {
 
         JFROG_LOCAL_REPO = 'python-local'
 
+        JFROG_SERVER = 'python-server'
+
+
+        // -----------------------------------------------------
+        // JFROG BUILD INFO
+        // -----------------------------------------------------
+
+        JFROG_CLI_BUILD_NAME = 'python-app'
+
+        JFROG_CLI_BUILD_NUMBER = "${BUILD_NUMBER}"
+
 
         // -----------------------------------------------------
         // PYTHON
@@ -178,6 +189,10 @@ pipeline {
                         error('SONAR_PROJECT_NAME is required.')
                     }
 
+
+                    // -------------------------------------------------
+                    // PROD safety
+                    // -------------------------------------------------
 
                     if (
                         params.ENVIRONMENT == 'PROD' &&
@@ -225,6 +240,28 @@ IS_FINAL_RUN=true is allowed only for PROD.
                     }
 
 
+                    // -------------------------------------------------
+                    // PROD approval validation
+                    // -------------------------------------------------
+
+                    if (params.ENVIRONMENT == 'PROD') {
+
+                        if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
+
+                            error(
+                                'PRIMARY_APPROVER_EMAIL is required for PROD.'
+                            )
+                        }
+
+                        if (!params.MANAGER_EMAIL?.trim()) {
+
+                            error(
+                                'MANAGER_EMAIL is required for PROD.'
+                            )
+                        }
+                    }
+
+
                     echo """
 ====================================================
 PYTHON + SONARQUBE + JFROG PIPELINE
@@ -247,6 +284,9 @@ Sonar Project Name   : ${params.SONAR_PROJECT_NAME}
 JFrog URL            : ${env.JFROG_URL}
 JFrog Resolve Repo   : ${env.JFROG_VIRTUAL_REPO}
 JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
+
+JFrog Build Name     : ${env.JFROG_CLI_BUILD_NAME}
+JFrog Build Number   : ${env.JFROG_CLI_BUILD_NUMBER}
 
 ====================================================
 """
@@ -285,10 +325,10 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
 
 
         // =====================================================
-        // 3. CHECK JFROG
+        // 3. CONFIGURE JFROG
         // =====================================================
 
-        stage('Check JFrog') {
+        stage('Configure JFrog') {
 
             steps {
 
@@ -310,19 +350,27 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
                         set -e
 
                         echo "======================================"
-                        echo "CONFIGURING JFROG"
+                        echo "CONFIGURING JFROG CLI"
                         echo "======================================"
 
-                        jf c rm artifactory || true
+                        jf config rm "${JFROG_SERVER}" --quiet || true
 
-                        jf c add artifactory \
+                        jf config add "${JFROG_SERVER}" \
                             --url="${JFROG_URL}" \
                             --user="${JFROG_USER}" \
                             --access-token="${JFROG_TOKEN}" \
                             --interactive=false \
                             --overwrite=true
 
-                        echo "JFrog configuration created."
+                        echo "JFrog server configured:"
+                        echo "${JFROG_SERVER}"
+
+                        echo "Testing JFrog connection..."
+
+                        jf rt ping \
+                            --server-id="${JFROG_SERVER}"
+
+                        echo "JFrog connection successful."
 
                         echo "Resolve repository:"
                         echo "${JFROG_VIRTUAL_REPO}"
@@ -330,8 +378,6 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
                         echo "Deploy repository:"
                         echo "${JFROG_LOCAL_REPO}"
 
-                        echo "======================================"
-                        echo "JFROG CONFIGURATION COMPLETE"
                         echo "======================================"
                     '''
                 }
@@ -446,13 +492,6 @@ JFrog Deploy Repo    : ${env.JFROG_LOCAL_REPO}
                         fi
 
 
-                        echo "Python:"
-                        "${PYTHON}" --version
-
-                        echo "Pip:"
-                        "${PYTHON}" -m pip --version
-
-
                         PIP_CONFIG="${WORKSPACE}/${VENV_DIR}/pip.conf"
 
                         cleanup() {
@@ -469,6 +508,12 @@ EOF
 
                         export PIP_CONFIG_FILE="${PIP_CONFIG}"
 
+
+                        echo "Python:"
+                        "${PYTHON}" --version
+
+                        echo "Pip:"
+                        "${PYTHON}" -m pip --version
 
                         echo "Installing dependencies..."
 
@@ -506,10 +551,8 @@ EOF
 
                     export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
-                    echo "Python:"
                     "${PYTHON}" --version
 
-                    echo "Pytest:"
                     "${PYTHON}" -m pytest --version
 
                     echo "PYTHONPATH:"
@@ -572,19 +615,9 @@ EOF
                                     echo "SonarQube URL:"
                                     echo "${SONAR_HOST_URL}"
 
-                                    echo "Project Key:"
-                                    echo "${SONAR_PROJECT_KEY}"
-
-                                    echo "Project Name:"
-                                    echo "${SONAR_PROJECT_NAME}"
-
-                                    echo "Scanner version:"
-
                                     "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
                                         --version
 
-
-                                    echo "Starting SonarQube scan..."
 
                                     "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
                                         -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
@@ -672,13 +705,11 @@ EOF
 
                     "${PYTHON}" -m build
 
-
                     echo "======================================"
                     echo "BUILD OUTPUT"
                     echo "======================================"
 
                     ls -lah "${PACKAGE_DIR}"
-
 
                     echo "======================================"
                     echo "PACKAGE BUILD COMPLETED"
@@ -698,7 +729,7 @@ EOF
 
                 script {
 
-                    def packageFiles = sh(
+                    def wheelFile = sh(
 
                         script: """
                             ls ${PACKAGE_DIR}/*.whl
@@ -708,7 +739,7 @@ EOF
                     ).trim()
 
 
-                    if (!packageFiles) {
+                    if (!wheelFile) {
 
                         error(
                             'No Python wheel found in dist/.'
@@ -716,12 +747,15 @@ EOF
                     }
 
 
+                    env.PYTHON_PACKAGE_FILE = wheelFile
+
+
                     echo """
 ====================================================
 PYTHON PACKAGE
 ====================================================
 
-${packageFiles}
+${wheelFile}
 
 ====================================================
 """
@@ -731,137 +765,7 @@ ${packageFiles}
 
 
         // =====================================================
-        // 12. PUBLISH DEV PACKAGE TO JFROG
-        // =====================================================
-
-        stage('Publish DEV Package to JFrog') {
-
-    when {
-
-        expression {
-            params.ENVIRONMENT == 'DEV'
-        }
-    }
-
-    steps {
-
-        withCredentials([
-
-            string(
-                credentialsId: 'jfrog-user',
-                variable: 'JFROG_USER'
-            ),
-
-            string(
-                credentialsId: 'jfrog-token',
-                variable: 'JFROG_TOKEN'
-            )
-
-        ]) {
-
-            sh '''
-                set -e
-
-                echo "======================================"
-                echo "PUBLISHING DEV PACKAGE TO JFROG"
-                echo "======================================"
-
-                JFROG_SERVER="python-server"
-
-                echo "JFrog Platform URL:"
-                echo "${JFROG_URL}"
-
-                echo "JFrog Repository:"
-                echo "${JFROG_LOCAL_REPO}"
-
-
-                echo "======================================"
-                echo "CONFIGURING JFROG CLI"
-                echo "======================================"
-
-                jf config rm "${JFROG_SERVER}" --quiet || true
-
-                jf config add "${JFROG_SERVER}" \
-                    --url="${JFROG_URL}" \
-                    --user="${JFROG_USER}" \
-                    --access-token="${JFROG_TOKEN}" \
-                    --interactive=false \
-                    --overwrite=true
-
-
-                echo "======================================"
-                echo "VERIFYING JFROG CLI"
-                echo "======================================"
-
-                jf config show "${JFROG_SERVER}"
-
-
-                echo "======================================"
-                echo "JFROG PING"
-                echo "======================================"
-
-                jf rt ping \
-                    --server-id="${JFROG_SERVER}"
-
-
-                echo "======================================"
-                echo "PACKAGE FILES"
-                echo "======================================"
-
-                ls -lah "${PACKAGE_DIR}"
-
-
-                echo "======================================"
-                echo "UPLOADING WHEEL"
-                echo "======================================"
-
-                jf rt upload \
-                    "${PACKAGE_DIR}/*.whl" \
-                    "${JFROG_LOCAL_REPO}/" \
-                    --server-id="${JFROG_SERVER}" \
-                    --flat=true
-
-
-                echo "======================================"
-                echo "UPLOADING SOURCE DISTRIBUTION"
-                echo "======================================"
-
-                if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
-
-                    jf rt upload \
-                        "${PACKAGE_DIR}/*.tar.gz" \
-                        "${JFROG_LOCAL_REPO}/" \
-                        --server-id="${JFROG_SERVER}" \
-                        --flat=true
-
-                else
-
-                    echo "No .tar.gz file found."
-
-                fi
-
-
-                echo "======================================"
-                echo "VERIFYING UPLOAD"
-                echo "======================================"
-
-                jf rt search \
-                    "${JFROG_LOCAL_REPO}/*" \
-                    --server-id="${JFROG_SERVER}" \
-                    --limit=10
-
-
-                echo "======================================"
-                echo "DEV PACKAGE PUBLISHED SUCCESSFULLY"
-                echo "======================================"
-            '''
-        }
-    }
-}
-
-
-        // =====================================================
-        // 13. PROD PLACEHOLDER
+        // 12. PROD APPROVAL
         // =====================================================
 
         stage('PROD Approval') {
@@ -877,33 +781,337 @@ ${packageFiles}
 
             steps {
 
-                echo """
+                script {
+
+                    echo """
 ====================================================
-PROD FLOW NOT ENABLED YET
+PRODUCTION APPROVAL REQUIRED
 ====================================================
 
-The DEV publishing flow has been implemented.
+Project       : ${params.SONAR_PROJECT_NAME}
+Build         : ${BUILD_NUMBER}
+Environment   : PROD
 
-For this test:
+Package       : ${env.PYTHON_PACKAGE_FILE}
 
-PROD approval
-and
-PROD publishing
+SonarQube     : PASSED
+Quality Gate  : PASSED
 
-are intentionally not enabled yet.
-
-We will add them after DEV JFrog publishing
-has been verified successfully.
+The package will NOT be published until
+production approval is granted.
 
 ====================================================
 """
+
+
+                    // -------------------------------------------------
+                    // Approval email
+                    // -------------------------------------------------
+
+                    mail(
+
+                        to: params.PRIMARY_APPROVER_EMAIL,
+
+                        subject:
+                            "PROD APPROVAL REQUIRED - ${params.SONAR_PROJECT_NAME} #${BUILD_NUMBER}",
+
+                        mimeType: 'text/html',
+
+                        body: """
+
+                            <h2>Production Approval Required</h2>
+
+                            <p>
+                                <b>Project:</b>
+                                ${params.SONAR_PROJECT_NAME}
+                            </p>
+
+                            <p>
+                                <b>Build:</b>
+                                ${BUILD_NUMBER}
+                            </p>
+
+                            <p>
+                                <b>Environment:</b>
+                                PROD
+                            </p>
+
+                            <p>
+                                <b>Package:</b>
+                                ${env.PYTHON_PACKAGE_FILE}
+                            </p>
+
+                            <p>
+                                <b>SonarQube:</b>
+                                PASSED
+                            </p>
+
+                            <p>
+                                <b>Quality Gate:</b>
+                                PASSED
+                            </p>
+
+                            <p>
+                                <b>Jenkins Build:</b>
+                                <a href="${BUILD_URL}">
+                                    ${BUILD_URL}
+                                </a>
+                            </p>
+
+                            <p>
+                                Please review and approve the
+                                production release in Jenkins.
+                            </p>
+                        """
+                    )
+
+
+                    // -------------------------------------------------
+                    // Jenkins approval
+                    // -------------------------------------------------
+
+                    def approver = input(
+
+                        message: """
+
+====================================================
+PRODUCTION RELEASE APPROVAL
+====================================================
+
+Project     : ${params.SONAR_PROJECT_NAME}
+Build       : ${BUILD_NUMBER}
+Environment : PROD
+
+Package:
+${env.PYTHON_PACKAGE_FILE}
+
+SonarQube:
+PASSED
+
+Quality Gate:
+PASSED
+
+The next stage will publish this package
+to JFrog python-local.
+
+====================================================
+
+""",
+
+                        ok: 'APPROVE PROD RELEASE',
+
+                        submitter:
+                            'primary-approver,admin,devops-admin',
+
+                        submitterParameter:
+                            'APPROVER'
+                    )
+
+
+                    env.APPROVED_BY = approver
+
+
+                    echo """
+====================================================
+PRODUCTION RELEASE APPROVED
+====================================================
+
+Approved By : ${approver}
+Build       : ${BUILD_NUMBER}
+
+====================================================
+"""
+
+
+                    // -------------------------------------------------
+                    // Manager notification
+                    // -------------------------------------------------
+
+                    mail(
+
+                        to: params.MANAGER_EMAIL,
+
+                        subject:
+                            "PROD RELEASE APPROVED - ${params.SONAR_PROJECT_NAME} #${BUILD_NUMBER}",
+
+                        mimeType: 'text/html',
+
+                        body: """
+
+                            <h2>Production Release Approved</h2>
+
+                            <p>
+                                <b>Project:</b>
+                                ${params.SONAR_PROJECT_NAME}
+                            </p>
+
+                            <p>
+                                <b>Build:</b>
+                                ${BUILD_NUMBER}
+                            </p>
+
+                            <p>
+                                <b>Approved By:</b>
+                                ${approver}
+                            </p>
+
+                            <p>
+                                <b>Package:</b>
+                                ${env.PYTHON_PACKAGE_FILE}
+                            </p>
+
+                            <p>
+                                <b>Jenkins Build:</b>
+                                <a href="${BUILD_URL}">
+                                    ${BUILD_URL}
+                                </a>
+                            </p>
+
+                        """
+                    )
+                }
+            }
+        }
+
+
+        // =====================================================
+        // 13. PUBLISH TO JFROG
+        // =====================================================
+
+        stage('Publish Package to JFrog') {
+
+            when {
+
+                expression {
+
+                    params.ENVIRONMENT == 'DEV' ||
+                    params.ENVIRONMENT == 'PROD'
+                }
+            }
+
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: 'jfrog-user',
+                        variable: 'JFROG_USER'
+                    ),
+
+                    string(
+                        credentialsId: 'jfrog-token',
+                        variable: 'JFROG_TOKEN'
+                    )
+
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================"
+                        echo "PUBLISHING PYTHON PACKAGE TO JFROG"
+                        echo "======================================"
+
+                        echo "Environment:"
+                        echo "${ENVIRONMENT}"
+
+                        echo "Repository:"
+                        echo "${JFROG_LOCAL_REPO}"
+
+                        echo "Package:"
+                        echo "${PYTHON_PACKAGE_FILE}"
+
+
+                        // -------------------------------------------------
+                        // Configure JFrog
+                        // -------------------------------------------------
+
+                        jf config rm "${JFROG_SERVER}" --quiet || true
+
+                        jf config add "${JFROG_SERVER}" \
+                            --url="${JFROG_URL}" \
+                            --user="${JFROG_USER}" \
+                            --access-token="${JFROG_TOKEN}" \
+                            --interactive=false \
+                            --overwrite=true
+
+
+                        // -------------------------------------------------
+                        // Upload wheel
+                        // -------------------------------------------------
+
+                        echo "======================================"
+                        echo "UPLOADING WHEEL"
+                        echo "======================================"
+
+                        jf rt upload \
+                            "${PACKAGE_DIR}/*.whl" \
+                            "${JFROG_LOCAL_REPO}/" \
+                            --server-id="${JFROG_SERVER}" \
+                            --flat=true
+
+
+                        // -------------------------------------------------
+                        // Upload source distribution
+                        // -------------------------------------------------
+
+                        echo "======================================"
+                        echo "UPLOADING SOURCE DISTRIBUTION"
+                        echo "======================================"
+
+                        if ls "${PACKAGE_DIR}"/*.tar.gz >/dev/null 2>&1; then
+
+                            jf rt upload \
+                                "${PACKAGE_DIR}/*.tar.gz" \
+                                "${JFROG_LOCAL_REPO}/" \
+                                --server-id="${JFROG_SERVER}" \
+                                --flat=true
+
+                        else
+
+                            echo "No .tar.gz file found."
+
+                        fi
+
+
+                        // -------------------------------------------------
+                        // Publish Build Info
+                        // -------------------------------------------------
+
+                        echo "======================================"
+                        echo "PUBLISHING JFROG BUILD INFO"
+                        echo "======================================"
+
+                        jf rt build-publish \
+                            "${JFROG_CLI_BUILD_NAME}" \
+                            "${JFROG_CLI_BUILD_NUMBER}" \
+                            --server-id="${JFROG_SERVER}"
+
+
+                        echo "======================================"
+                        echo "JFROG PUBLISH COMPLETED"
+                        echo "======================================"
+
+                        echo "Build Name:"
+                        echo "${JFROG_CLI_BUILD_NAME}"
+
+                        echo "Build Number:"
+                        echo "${JFROG_CLI_BUILD_NUMBER}"
+
+                        echo "Repository:"
+                        echo "${JFROG_LOCAL_REPO}"
+
+                        echo "======================================"
+                    '''
+                }
             }
         }
     }
 
 
     // =========================================================
-    // POST
+    // POST ACTIONS
     // =========================================================
 
     post {
@@ -918,6 +1126,9 @@ PYTHON + SONARQUBE + JFROG PIPELINE SUCCESS
 Project     : ${params.SONAR_PROJECT_NAME}
 Environment : ${params.ENVIRONMENT}
 Build       : ${BUILD_NUMBER}
+
+JFrog Build : ${env.JFROG_CLI_BUILD_NAME}
+JFrog Number: ${env.JFROG_CLI_BUILD_NUMBER}
 
 ====================================================
 """
