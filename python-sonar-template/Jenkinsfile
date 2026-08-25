@@ -737,6 +737,7 @@ ${packageFiles}
         stage('Publish DEV Package to JFrog') {
 
     when {
+
         expression {
             params.ENVIRONMENT == 'DEV'
         }
@@ -765,19 +766,23 @@ ${packageFiles}
                 echo "PUBLISHING DEV PACKAGE TO JFROG"
                 echo "======================================"
 
-                ARTIFACTORY_URL="${JFROG_URL}/artifactory"
+                JFROG_SERVER="python-server"
 
-                echo "Artifactory URL:"
-                echo "${ARTIFACTORY_URL}"
+                echo "JFrog Platform URL:"
+                echo "${JFROG_URL}"
 
-                echo "Repository:"
+                echo "JFrog Repository:"
                 echo "${JFROG_LOCAL_REPO}"
 
 
-                jf c rm artifactory || true
+                echo "======================================"
+                echo "CONFIGURING JFROG CLI"
+                echo "======================================"
 
-                jf c add artifactory \
-                    --url="${ARTIFACTORY_URL}" \
+                jf config rm "${JFROG_SERVER}" --quiet || true
+
+                jf config add "${JFROG_SERVER}" \
+                    --url="${JFROG_URL}" \
                     --user="${JFROG_USER}" \
                     --access-token="${JFROG_TOKEN}" \
                     --interactive=false \
@@ -785,19 +790,18 @@ ${packageFiles}
 
 
                 echo "======================================"
-                echo "CHECKING REPOSITORY ENDPOINT"
+                echo "VERIFYING JFROG CLI"
                 echo "======================================"
 
-                curl \
-                    --fail \
-                    --silent \
-                    --show-error \
-                    --head \
-                    --user "${JFROG_USER}:${JFROG_TOKEN}" \
-                    "${ARTIFACTORY_URL}/${JFROG_LOCAL_REPO}/"
+                jf config show "${JFROG_SERVER}"
 
 
-                echo "Repository endpoint is reachable."
+                echo "======================================"
+                echo "JFROG PING"
+                echo "======================================"
+
+                jf rt ping \
+                    --server-id="${JFROG_SERVER}"
 
 
                 echo "======================================"
@@ -814,6 +818,7 @@ ${packageFiles}
                 jf rt upload \
                     "${PACKAGE_DIR}/*.whl" \
                     "${JFROG_LOCAL_REPO}/" \
+                    --server-id="${JFROG_SERVER}" \
                     --flat=true
 
 
@@ -826,6 +831,7 @@ ${packageFiles}
                     jf rt upload \
                         "${PACKAGE_DIR}/*.tar.gz" \
                         "${JFROG_LOCAL_REPO}/" \
+                        --server-id="${JFROG_SERVER}" \
                         --flat=true
 
                 else
@@ -836,7 +842,17 @@ ${packageFiles}
 
 
                 echo "======================================"
-                echo "DEV PACKAGE PUBLISHED"
+                echo "VERIFYING UPLOAD"
+                echo "======================================"
+
+                jf rt search \
+                    "${JFROG_LOCAL_REPO}/*" \
+                    --server-id="${JFROG_SERVER}" \
+                    --limit=10
+
+
+                echo "======================================"
+                echo "DEV PACKAGE PUBLISHED SUCCESSFULLY"
                 echo "======================================"
             '''
         }
