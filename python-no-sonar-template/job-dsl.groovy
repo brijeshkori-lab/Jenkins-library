@@ -1,41 +1,23 @@
 pipelineJob('python-app-without-sonar') {
 
     description('''
-        Production Python CI/CD Pipeline without SonarQube.
+        Enterprise Python CI/CD Pipeline without SonarQube.
 
-        Pipeline:
+        Pipeline flow:
 
         GitHub
           -> Python environment
-          -> JFrog python-virtual dependencies
-          -> Tests
-          -> Python package
-          -> DEV: automatic JFrog publish
-          -> PROD: approval -> JFrog publish
+          -> JFrog dependency resolution
+          -> Unit tests + coverage
+          -> Python package build
           -> JFrog Build Info
+          -> JFrog publish
+          -> Xray
+          -> SBOM
+          -> DEV / PROD release
     ''')
 
     parameters {
-
-        stringParam(
-            'GIT_URL',
-            '',
-            'Git URL of the Python application'
-        )
-
-        stringParam(
-            'GIT_BRANCH',
-            'main',
-            'Git branch to build'
-        )
-
-        choiceParam(
-            'PYTHON_VERSION',
-            [
-                'python3'
-            ],
-            'Python executable available on Jenkins agent'
-        )
 
         choiceParam(
             'ENVIRONMENT',
@@ -43,7 +25,7 @@ pipelineJob('python-app-without-sonar') {
                 'DEV',
                 'PROD'
             ],
-            'Target environment'
+            'Target deployment environment'
         )
 
         choiceParam(
@@ -52,34 +34,21 @@ pipelineJob('python-app-without-sonar') {
                 'false',
                 'true'
             ],
-            'Must be true for PROD execution'
-        )
-
-        stringParam(
-            'REQUIREMENTS_FILE',
-            'requirements.txt',
-            'Python dependency file'
-        )
-
-        stringParam(
-            'TEST_COMMAND',
-            'pytest -v',
-            'Python test command'
+            'Select true only for the final PROD release'
         )
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
-            'Email address of PROD approver'
+            'Primary PROD approval email address'
         )
 
         stringParam(
             'MANAGER_EMAIL',
             '',
-            'Manager email'
+            'Manager notification email address'
         )
     }
-
 
     definition {
 
@@ -90,7 +59,6 @@ pipelineJob('python-app-without-sonar') {
                 git {
 
                     remote {
-
                         url(
                             'https://github.com/brijeshkori-lab/Jenkins-library.git'
                         )
