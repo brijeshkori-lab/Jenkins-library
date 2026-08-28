@@ -1,36 +1,32 @@
-pipelineJob('python-app-v2-without-sonar') {
+pipelineJob('python-app-v2-with-sonar') {
 
     description('''
-        Enterprise Python V2 CI/CD Pipeline without SonarQube.
+        Python V2 Enterprise CI/CD Pipeline.
 
-        Pipeline flow:
+        Pipeline:
 
-        Application Git
-          -> Python environment
-          -> JFrog dependency resolution
-          -> Unit tests + coverage
-          -> Python package build
+        GitHub
+          -> Python Environment
+          -> JFrog Dependency Resolution
+          -> Unit Tests + Coverage
+          -> Python Package Build
+          -> SonarQube
+          -> Quality Gate
+          -> Artifactory Project / Repository
           -> JFrog Build Info
-          -> JFrog publish
+          -> Artifact Publication
           -> Xray
           -> SBOM
-          -> DEV / PROD release
+          -> DEV / PROD Release
     ''')
+
 
     parameters {
 
-        /*
-         * Application repository.
-         *
-         * This is NOT the Jenkins-library repository.
-         *
-         * Example:
-         * https://github.com/brijeshkori-lab/python-app-template
-         */
         stringParam(
             'PROJECT_URL',
             '',
-            'Git URL of the Python application'
+            'GitHub repository URL of the Python application'
         )
 
         choiceParam(
@@ -62,7 +58,20 @@ pipelineJob('python-app-v2-without-sonar') {
             '',
             'Manager notification email address'
         )
+
+        stringParam(
+            'TO_EMAIL',
+            '',
+            'Pipeline notification recipients'
+        )
+
+        stringParam(
+            'CC_EMAIL',
+            '',
+            'Pipeline notification CC recipients'
+        )
     }
+
 
     definition {
 
@@ -73,26 +82,21 @@ pipelineJob('python-app-v2-without-sonar') {
                 git {
 
                     remote {
+
                         url(
                             'https://github.com/brijeshkori-lab/Jenkins-library.git'
                         )
                     }
 
-                    /*
-                     * This is the TEMPLATE repository branch.
-                     *
-                     * Keep this exactly as it is.
-                     */
                     branch('*/template')
                 }
             }
 
-            /*
-             * This is the V2 Jenkinsfile inside Jenkins-library.
-             */
+
             scriptPath(
-                'python-no-sonar-template-v2/Jenkinsfile'
+                'python-v2-template/Jenkinsfile'
             )
+
 
             lightweight(true)
         }

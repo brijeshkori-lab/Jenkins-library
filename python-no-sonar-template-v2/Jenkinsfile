@@ -7,25 +7,25 @@ pipeline {
         string(
             name: 'PROJECT_URL',
             defaultValue: '',
-            description: 'Git URL of the Python application'
+            description: 'GitHub repository URL of the Python project'
         )
 
         choice(
             name: 'ENVIRONMENT',
             choices: ['DEV', 'PROD'],
-            description: 'Target environment'
+            description: 'Select deployment environment'
         )
 
         choice(
             name: 'IS_FINAL_RUN',
             choices: ['false', 'true'],
-            description: 'Set true only for the final PROD release'
+            description: 'Select true only for final PROD release'
         )
 
         string(
             name: 'PRIMARY_APPROVER_EMAIL',
             defaultValue: '',
-            description: 'Required for PROD final run'
+            description: 'Primary PROD approval email'
         )
 
         string(
@@ -43,44 +43,63 @@ pipeline {
         string(
             name: 'CC_EMAIL',
             defaultValue: '',
-            description: 'CC notification recipients'
+            description: 'Pipeline notification CC recipients'
         )
     }
 
     environment {
 
-        // =========================================================
-        // PYTHON
-        // =========================================================
+        /*
+         * =========================================================
+         * PYTHON
+         * =========================================================
+         */
 
         CI_VENV = '.ci-venv'
-        PYTHON_COMMAND = 'python3'
 
+        /*
+         * =========================================================
+         * JFROG
+         * =========================================================
+         */
 
-        // =========================================================
-        // JFROG CLOUD
-        // =========================================================
+        JFROG_URL = 'https://trialn4vk2g.jfrog.io/artifactory'
 
-        JFROG_URL = 'https://trialn4vk2g.jfrog.io'
+        JFROG_PLATFORM_URL = 'https://trialn4vk2g.jfrog.io'
 
-        JFROG_SERVER = 'python-server'
+        JFROG_SERVER_ID = 'python-server'
 
-        JFROG_VIRTUAL_REPO = 'python-virtual'
-        JFROG_REMOTE_REPO  = 'python-remote'
+        JFROG_TOKEN_ID = 'jfrog-token'
 
+        JFROG_USER_ID = 'jfrog-user'
 
-        // =========================================================
-        // BUILD INFO
-        // =========================================================
+        JFROG_DEPENDENCY_REPO = 'python-virtual'
 
-        JFROG_CLI_BUILD_NUMBER = "${BUILD_NUMBER}"
+        /*
+         * =========================================================
+         * SONARQUBE
+         * =========================================================
+         */
+
+        SONAR_SERVER = 'SonarQubeLocal'
+
+        SONAR_TOKEN_ID = 'sonar-token'
+
+        /*
+         * =========================================================
+         * VERSION
+         * =========================================================
+         */
+
+        PROJECT_VERSION = '1'
     }
 
 
     stages {
 
+
         // =========================================================
-        // PROD SAFETY GUARD
+        // PROD SAFETY
         // =========================================================
 
         stage('PROD Safety Guard') {
@@ -89,202 +108,319 @@ pipeline {
 
                 script {
 
-                    echo """
-====================================================
-PRODUCTION SAFETY CHECK
-====================================================
-
-Environment : ${params.ENVIRONMENT}
-Final Run   : ${params.IS_FINAL_RUN}
-
-====================================================
-"""
-
                     if (
                         params.ENVIRONMENT == 'PROD' &&
                         params.IS_FINAL_RUN != 'true'
                     ) {
 
                         error("""
-====================================================
+=======================================
 PRODUCTION DEPLOYMENT BLOCKED
-====================================================
+=======================================
 
-PROD requires:
+PROD deployments require:
 
 ENVIRONMENT  = PROD
 IS_FINAL_RUN = true
 
-====================================================
+Selected Environment : ${params.ENVIRONMENT}
+Final Run            : ${params.IS_FINAL_RUN}
+
+Please correct the parameters and re-run.
+=======================================
 """)
                     }
 
-                    if (
-                        params.ENVIRONMENT == 'DEV' &&
-                        params.IS_FINAL_RUN == 'true'
-                    ) {
-
-                        error("""
-====================================================
-INVALID FINAL RUN
-====================================================
-
-IS_FINAL_RUN=true is only allowed for PROD.
-
-====================================================
-""")
-                    }
+                    echo "PROD SAFETY CHECK PASSED"
                 }
             }
         }
 
 
         // =========================================================
-        // INITIALIZE PROJECT
+        // FINAL RUN APPROVAL
         // =========================================================
 
-stage('Initialize') {
+        stage('FINAL RUN Approval Gate') {
 
-    steps {
+            when {
 
-        script {
-
-            if (!params.PROJECT_URL?.trim()) {
-
-                error("""
-====================================================
-PROJECT URL IS REQUIRED
-====================================================
-
-PROJECT_URL was not provided.
-
-Example:
-
-https://github.com/brijeshkori-lab/python-app-template
-
-Please provide the application Git repository URL
-when starting the pipeline.
-
-====================================================
-""")
+                expression {
+                    params.IS_FINAL_RUN == 'true'
+                }
             }
 
+            steps {
 
-            def cleanUrl =
-                params.PROJECT_URL
-                    .trim()
-                    .replaceAll(/\/+$/, '')
-                    .replaceAll(/\.git$/, '')
+                script {
 
+                    if (params.ENVIRONMENT != 'PROD') {
 
-            def urlParts =
-                cleanUrl
-                    .tokenize('/')
+                        error("""
+FINAL RUN BLOCKED
 
+FINAL RUN can only be executed against PROD.
 
-            if (urlParts.isEmpty()) {
-
-                error("""
-====================================================
-INVALID PROJECT URL
-====================================================
-
-PROJECT_URL:
-
-${params.PROJECT_URL}
-
-Unable to derive project name.
-
-====================================================
+Environment : ${params.ENVIRONMENT}
 """)
+                    }
+
+                    if (!params.PROJECT_URL?.trim()) {
+                        error('PROJECT_URL is required.')
+                    }
+
+                    if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
+                        error(
+                            'PRIMARY_APPROVER_EMAIL is required for FINAL RUN.'
+                        )
+                    }
+
+                    if (!params.MANAGER_EMAIL?.trim()) {
+                        error(
+                            'MANAGER_EMAIL is required for FINAL RUN.'
+                        )
+                    }
+
+
+                    /*
+                     * -------------------------------------------------
+                     * Derive project information
+                     * -------------------------------------------------
+                     */
+
+                    def urlParts = params.PROJECT_URL
+                        .trim()
+                        .replaceAll('/+$', '')
+                        .tokenize('/')
+
+                    if (urlParts.size() < 2) {
+                        error(
+                            "Invalid PROJECT_URL: ${params.PROJECT_URL}"
+                        )
+                    }
+
+                    def projectName = urlParts[-1]
+
+                    /*
+                     * GitHub URLs:
+                     *
+                     * https://github.com/org/python-app-template
+                     *
+                     * projectName = python-app-template
+                     */
+
+                    env.PROJECT_NAME = projectName
+
+                    /*
+                     * For Python we keep the folder equal to the
+                     * repository/project name.
+                     *
+                     * This gives:
+                     *
+                     * python-app-template/
+                     *     BUILD_NUMBER/
+                     */
+
+                    env.PROJECT_FOLDER = projectName
+
+
+                    echo """
+=======================================
+FINAL RUN APPROVAL REQUIRED
+=======================================
+
+Project URL       : ${params.PROJECT_URL}
+Project Name      : ${env.PROJECT_NAME}
+Project Folder    : ${env.PROJECT_FOLDER}
+
+Environment       : ${params.ENVIRONMENT}
+Final Run         : ${params.IS_FINAL_RUN}
+
+Build Number      : ${BUILD_NUMBER}
+
+=======================================
+"""
+
+
+                    /*
+                     * -------------------------------------------------
+                     * Approval notification
+                     * -------------------------------------------------
+                     */
+
+                    mail(
+                        to: params.PRIMARY_APPROVER_EMAIL,
+                        subject:
+                            "FINAL RUN APPROVAL REQUIRED - ${env.PROJECT_NAME}",
+                        mimeType: 'text/html',
+                        body: """
+<h2>FINAL RUN APPROVAL REQUIRED</h2>
+
+<p><b>Project:</b> ${env.PROJECT_NAME}</p>
+<p><b>Project URL:</b> ${params.PROJECT_URL}</p>
+<p><b>Environment:</b> ${params.ENVIRONMENT}</p>
+<p><b>Build:</b> ${BUILD_NUMBER}</p>
+
+<p>
+<b>Jenkins:</b>
+<a href="${BUILD_URL}">
+${BUILD_URL}
+</a>
+</p>
+
+<p>
+Please open Jenkins and approve the pending execution.
+</p>
+"""
+                    )
+
+
+                    /*
+                     * -------------------------------------------------
+                     * Jenkins manual approval
+                     * -------------------------------------------------
+                     */
+
+                    def approver = input(
+                        message: """
+FINAL RUN APPROVAL REQUIRED
+
+Project     : ${env.PROJECT_NAME}
+Environment : ${params.ENVIRONMENT}
+Build       : ${BUILD_NUMBER}
+
+Only an authorized production approver should approve.
+""",
+                        ok: 'APPROVE',
+                        submitter:
+                            'primary-approver,admin,devops-admin',
+                        submitterParameter: 'APPROVER'
+                    )
+
+
+                    echo "Approved by: ${approver}"
+
+
+                    /*
+                     * -------------------------------------------------
+                     * Manager notification
+                     * -------------------------------------------------
+                     */
+
+                    mail(
+                        to: params.MANAGER_EMAIL,
+                        subject:
+                            "FINAL RUN STARTED - ${env.PROJECT_NAME}",
+                        mimeType: 'text/html',
+                        body: """
+<h2>FINAL RUN APPROVED</h2>
+
+<p><b>Project:</b> ${env.PROJECT_NAME}</p>
+<p><b>Environment:</b> ${params.ENVIRONMENT}</p>
+<p><b>Build:</b> ${BUILD_NUMBER}</p>
+<p><b>Approved By:</b> ${approver}</p>
+
+<p>
+<b>Jenkins:</b>
+<a href="${BUILD_URL}">
+${BUILD_URL}
+</a>
+</p>
+"""
+                    )
+                }
             }
+        }
 
 
-            def projectName =
-                urlParts[-1]
+        // =========================================================
+        // INITIALIZE
+        // =========================================================
+
+        stage('Initialize') {
+
+            steps {
+
+                script {
+
+                    if (!params.PROJECT_URL?.trim()) {
+                        error('PROJECT_URL is required.')
+                    }
 
 
-            if (!projectName?.trim()) {
-
-                error("""
-====================================================
-INVALID PROJECT URL
-====================================================
-
-PROJECT_URL:
-
-${params.PROJECT_URL}
-
-Unable to determine project name.
-
-====================================================
-""")
-            }
+                    def cleanUrl = params.PROJECT_URL
+                        .trim()
+                        .replaceAll('/+$', '')
 
 
-            /*
-             * Application/project name.
-             *
-             * Example:
-             *
-             * https://github.com/brijeshkori-lab/python-app-template
-             *
-             * becomes:
-             *
-             * python-app-template
-             */
+                    def parts = cleanUrl.tokenize('/')
 
-            env.PROJECT_NAME =
-                projectName
+                    if (parts.size() < 2) {
+                        error(
+                            "Invalid GitHub PROJECT_URL: ${cleanUrl}"
+                        )
+                    }
 
 
-            /*
-             * Same concept as the Java reference.
-             */
+                    /*
+                     * Last component becomes project name.
+                     */
 
-            env.PROJECT_FOLDER =
-                projectName
-
-
-            /*
-             * JFrog project key.
-             *
-             * Example:
-             *
-             * python-app-template
-             *
-             * becomes:
-             *
-             * pythonapptemplate
-             */
-
-            env.JFROG_PROJECT_KEY =
-                projectName
-                    .toLowerCase()
-                    .replaceAll('[^a-z0-9]', '')
+                    def projectName = parts[-1]
 
 
-            /*
-             * IMPORTANT:
-             *
-             * Same JFrog repository model as reference:
-             *
-             * <PROJECT_NAME>-<ENVIRONMENT>
-             */
+                    /*
+                     * Remove .git if supplied.
+                     */
 
-            env.ARTIFACTORY_REPO =
-                "${env.PROJECT_NAME}-${params.ENVIRONMENT}"
+                    projectName =
+                        projectName.replaceAll(/\.git$/, '')
 
 
-            /*
-             * JFrog Build Info name.
-             */
+                    env.PROJECT_NAME = projectName
 
-            env.JFROG_CLI_BUILD_NAME =
-                env.PROJECT_FOLDER
+                    env.PROJECT_FOLDER = projectName
 
 
-            echo """
+                    /*
+                     * JFrog project key
+                     *
+                     * python-app-template
+                     *       ↓
+                     * pythonapptemplate
+                     */
+
+                    env.JFROG_PROJECT =
+                        projectName
+                            .toLowerCase()
+                            .replaceAll('[^a-z0-9]', '')
+
+
+                    env.ARTIFACTORY_REPO =
+                        "${projectName}-${params.ENVIRONMENT}"
+
+
+                    env.JFROG_BUILD_NAME =
+                        projectName
+
+
+                    env.JFROG_BUILD_NUMBER =
+                        "${BUILD_NUMBER}"
+
+
+                    env.JFROG_ARTIFACT_PATH =
+                        "${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}"
+
+
+                    env.SONAR_PROJECT_KEY =
+                        projectName
+
+
+                    env.SONAR_PROJECT_NAME =
+                        projectName
+
+
+                    echo """
 ====================================================
 PYTHON V2 PROJECT INITIALIZATION
 ====================================================
@@ -297,145 +433,67 @@ Project Folder    : ${env.PROJECT_FOLDER}
 Environment       : ${params.ENVIRONMENT}
 Final Run         : ${params.IS_FINAL_RUN}
 
-JFrog Project     : ${env.JFROG_PROJECT_KEY}
+JFrog Project     : ${env.JFROG_PROJECT}
 JFrog Repository  : ${env.ARTIFACTORY_REPO}
 
-JFrog Build Name  : ${env.JFROG_CLI_BUILD_NAME}
-Jenkins Build     : ${BUILD_NUMBER}
+JFrog Build Name  : ${env.JFROG_BUILD_NAME}
+Jenkins Build     : ${env.JFROG_BUILD_NUMBER}
 
-Dependency Repo   : ${env.JFROG_VIRTUAL_REPO}
+Dependency Repo   : ${JFROG_DEPENDENCY_REPO}
+
+Sonar Project Key : ${env.SONAR_PROJECT_KEY}
+
+Artifact Path     : ${env.JFROG_ARTIFACT_PATH}
 
 ====================================================
 """
-        }
-    }
-}
-
-
-        // =========================================================
-        // PROD APPROVAL
-        // =========================================================
-
-        stage('PROD Approval') {
-
-            when {
-
-                expression {
-
-                    params.ENVIRONMENT == 'PROD' &&
-                    params.IS_FINAL_RUN == 'true'
                 }
+            }
+        }
+
+
+        // =========================================================
+        // CLEAN WORKSPACE
+        // =========================================================
+
+        stage('Clean Workspace') {
+
+            steps {
+
+                sh '''
+                    set -e
+
+                    echo "Cleaning workspace..."
+
+                    find . -mindepth 1 -maxdepth 1 \
+                        -exec rm -rf {} +
+
+                    echo "Workspace cleaned."
+                '''
+            }
+        }
+
+
+        // =========================================================
+        // CHECKOUT APPLICATION
+        // =========================================================
+
+        stage('Checkout') {
+
+            options {
+                timeout(
+                    time: 30,
+                    unit: 'MINUTES'
+                )
             }
 
             steps {
 
                 script {
 
-                    if (!params.PRIMARY_APPROVER_EMAIL?.trim()) {
-
-                        error(
-                            'PRIMARY_APPROVER_EMAIL is required for PROD.'
-                        )
-                    }
-
-                    if (!params.MANAGER_EMAIL?.trim()) {
-
-                        error(
-                            'MANAGER_EMAIL is required for PROD.'
-                        )
-                    }
-
-
-                    mail(
-
-                        to: params.PRIMARY_APPROVER_EMAIL,
-
-                        subject:
-                            "PROD APPROVAL REQUIRED - ${env.PROJECT_NAME} #${BUILD_NUMBER}",
-
-                        mimeType: 'text/html',
-
-                        body: """
-<h2>Production Approval Required</h2>
-
-<p><b>Project:</b> ${env.PROJECT_NAME}</p>
-<p><b>Build:</b> ${BUILD_NUMBER}</p>
-<p><b>Environment:</b> PROD</p>
-
-<p>
-<a href="${BUILD_URL}">
-Open Jenkins Build
-</a>
-</p>
-
-<p>Please review and approve the build in Jenkins.</p>
-"""
-                    )
-
-
-                    def approver = input(
-
-                        message: """
-====================================================
-PRODUCTION RELEASE APPROVAL
-====================================================
-
-Project     : ${env.PROJECT_NAME}
-Build       : ${BUILD_NUMBER}
-Environment : PROD
-
-Approve this build to continue.
-
-====================================================
-""",
-
-                        ok: 'APPROVE PROD RELEASE',
-
-                        submitter:
-                            'primary-approver,admin,devops-admin',
-
-                        submitterParameter: 'APPROVER'
-                    )
-
-
-                    env.APPROVED_BY = approver
-
-
-                    echo """
-====================================================
-PRODUCTION RELEASE APPROVED
-====================================================
-
-Approved By : ${approver}
-Build       : ${BUILD_NUMBER}
-
-====================================================
-"""
-
-
-                    mail(
-
-                        to: params.MANAGER_EMAIL,
-
-                        subject:
-                            "PROD RELEASE APPROVED - ${env.PROJECT_NAME} #${BUILD_NUMBER}",
-
-                        mimeType: 'text/html',
-
-                        body: """
-<h2>Production Release Approved</h2>
-
-<p><b>Project:</b> ${env.PROJECT_NAME}</p>
-<p><b>Build:</b> ${BUILD_NUMBER}</p>
-<p><b>Approved By:</b> ${approver}</p>
-<p><b>Environment:</b> PROD</p>
-
-<p>
-<a href="${BUILD_URL}">
-Open Jenkins Build
-</a>
-</p>
-"""
+                    git(
+                        url: params.PROJECT_URL,
+                        branch: 'main'
                     )
                 }
             }
@@ -443,23 +501,7 @@ Open Jenkins Build
 
 
         // =========================================================
-        // CHECKOUT
-        // =========================================================
-
-        stage('Checkout') {
-
-            steps {
-
-                git(
-                    url: params.PROJECT_URL,
-                    branch: '*/main'
-                )
-            }
-        }
-
-
-        // =========================================================
-        // PYTHON ENVIRONMENT
+        // SETUP PYTHON
         // =========================================================
 
         stage('Setup Python Environment') {
@@ -473,20 +515,19 @@ Open Jenkins Build
                     echo "PYTHON ENVIRONMENT"
                     echo "======================================"
 
-                    command -v "${PYTHON_COMMAND}"
+                    command -v python3
 
-                    "${PYTHON_COMMAND}" --version
+                    python3 --version
 
-                    "${PYTHON_COMMAND}" -m pip --version
+                    python3 -m pip --version
 
                     rm -rf "${CI_VENV}"
 
-                    "${PYTHON_COMMAND}" -m venv "${CI_VENV}"
+                    python3 -m venv "${CI_VENV}"
 
                     "${CI_VENV}/bin/python" --version
 
-                    "${CI_VENV}/bin/python" \
-                        -m pip install --upgrade pip
+                    "${CI_VENV}/bin/python" -m pip install --upgrade pip
 
                     echo "Installing CI tooling..."
 
@@ -498,18 +539,16 @@ Open Jenkins Build
 
                     echo "Verifying pytest..."
 
-                    "${CI_VENV}/bin/python" \
-                        -m pytest --version
+                    "${CI_VENV}/bin/python" -m pytest --version
 
                     echo "Verifying pytest-cov..."
 
-                    "${CI_VENV}/bin/python" \
-                        -m pytest --help | grep -- '--cov'
+                    "${CI_VENV}/bin/python" -m pytest --help \
+                        | grep -- --cov
 
-                    echo "Verifying build..."
+                    echo "Verifying Python build..."
 
-                    "${CI_VENV}/bin/python" \
-                        -m build --version
+                    "${CI_VENV}/bin/python" -m build --version
 
                     echo "======================================"
                     echo "PYTHON ENVIRONMENT READY"
@@ -529,16 +568,16 @@ Open Jenkins Build
 
                 withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
+                    usernamePassword(
+                        credentialsId: JFROG_USER_ID,
+                        usernameVariable: 'JFROG_USER',
+                        passwordVariable: 'JFROG_USER_PASSWORD'
                     ),
 
                     string(
-                        credentialsId: 'jfrog-token',
+                        credentialsId: JFROG_TOKEN_ID,
                         variable: 'JFROG_TOKEN'
                     )
-
                 ]) {
 
                     sh '''
@@ -548,24 +587,25 @@ Open Jenkins Build
                         echo "CONFIGURING JFROG"
                         echo "======================================"
 
-                        jf config rm "${JFROG_SERVER}" \
-                            --quiet || true
+                        jf config rm "${JFROG_SERVER_ID}" --quiet || true
 
-                        jf config add "${JFROG_SERVER}" \
+                        jf config add "${JFROG_SERVER_ID}" \
                             --url="${JFROG_URL}" \
                             --user="${JFROG_USER}" \
                             --access-token="${JFROG_TOKEN}" \
                             --interactive=false \
                             --overwrite=true
 
-                        jf config use "${JFROG_SERVER}"
+                        jf config use "${JFROG_SERVER_ID}"
 
-                        echo "Testing JFrog..."
+                        echo "JFrog configuration created."
 
-                        jf rt ping
+                        echo "Server:"
+                        jf config show "${JFROG_SERVER_ID}" \
+                            --details=false || true
 
-                        echo "JFrog connection successful."
-
+                        echo "======================================"
+                        echo "JFROG CONFIGURED"
                         echo "======================================"
                     '''
                 }
@@ -574,7 +614,7 @@ Open Jenkins Build
 
 
         // =========================================================
-        // DEPENDENCIES FROM JFROG VIRTUAL
+        // INSTALL DEPENDENCIES
         // =========================================================
 
         stage('Install Dependencies') {
@@ -583,16 +623,11 @@ Open Jenkins Build
 
                 withCredentials([
 
-                    string(
-                        credentialsId: 'jfrog-user',
-                        variable: 'JFROG_USER'
-                    ),
-
-                    string(
-                        credentialsId: 'jfrog-token',
-                        variable: 'JFROG_TOKEN'
+                    usernamePassword(
+                        credentialsId: JFROG_USER_ID,
+                        usernameVariable: 'JFROG_USER',
+                        passwordVariable: 'JFROG_USER_PASSWORD'
                     )
-
                 ]) {
 
                     sh '''
@@ -607,9 +642,7 @@ Open Jenkins Build
                         PIP_CONFIG="${WORKSPACE}/${CI_VENV}/pip.conf"
 
                         cleanup_pip_config() {
-
                             rm -f "${PIP_CONFIG}"
-
                         }
 
                         trap cleanup_pip_config EXIT
@@ -617,8 +650,10 @@ Open Jenkins Build
 
                         cat > "${PIP_CONFIG}" <<EOF
 [global]
-index-url = https://${JFROG_USER}:${JFROG_TOKEN}@trialn4vk2g.jfrog.io/artifactory/${JFROG_VIRTUAL_REPO}/simple
+index-url = https://${JFROG_USER}:${JFROG_USER_PASSWORD}@trialn4vk2g.jfrog.io/artifactory/${JFROG_DEPENDENCY_REPO}/simple
+trusted-host = trialn4vk2g.jfrog.io
 EOF
+
 
                         export PIP_CONFIG_FILE="${PIP_CONFIG}"
 
@@ -627,20 +662,12 @@ EOF
 
                             echo "Found requirements.txt"
 
-                            "${PYTHON}" \
-                                -m pip install \
+                            "${PYTHON}" -m pip install \
                                 -r requirements.txt
-
-                        elif [ -f pyproject.toml ]; then
-
-                            echo "Found pyproject.toml"
-
-                            "${PYTHON}" \
-                                -m pip install .
 
                         else
 
-                            echo "No dependency file found."
+                            echo "No requirements.txt found."
 
                         fi
 
@@ -675,8 +702,12 @@ EOF
 
                     export PYTHONPATH="${WORKSPACE}:${PYTHONPATH:-}"
 
+
+                    echo "Python:"
                     "${PYTHON}" --version
 
+
+                    echo "Pytest:"
                     "${PYTHON}" -m pytest --version
 
 
@@ -728,7 +759,7 @@ EOF
 
 
         // =========================================================
-        // BUILD PYTHON PACKAGE
+        // BUILD PACKAGE
         // =========================================================
 
         stage('Build Python Package') {
@@ -756,27 +787,32 @@ EOF
 
                     if ! ls dist/*.whl >/dev/null 2>&1; then
 
-                        echo "ERROR: Wheel not generated."
+                        echo "ERROR: Python wheel was not generated."
 
                         exit 1
 
                     fi
 
 
-                    if ! ls dist/*.tar.gz >/dev/null 2>&1; then
-
-                        echo "ERROR: Source distribution not generated."
-
-                        exit 1
-
-                    fi
+                    echo "PACKAGE BUILD COMPLETED"
                 '''
+            }
+
+            post {
+
+                success {
+
+                    archiveArtifacts(
+                        artifacts: 'dist/*',
+                        fingerprint: true
+                    )
+                }
             }
         }
 
 
         // =========================================================
-        // PACKAGE INFORMATION
+        // READ PACKAGE VERSION
         // =========================================================
 
         stage('Read Package Version') {
@@ -785,39 +821,40 @@ EOF
 
                 script {
 
-                    def wheelFile = sh(
-
+                    def wheel = sh(
                         script:
                             'ls dist/*.whl | head -1',
-
                         returnStdout: true
                     ).trim()
 
 
-                    def wheelName =
-                        wheelFile.tokenize('/').last()
+                    def fileName =
+                        wheel.tokenize('/').last()
 
 
-                    def match =
-                        wheelName =~ /^(.+)-([0-9][^-]*)-.*\\.whl$/
+                    /*
+                     * Example:
+                     *
+                     * python_sonar_test-1.0.0-py3-none-any.whl
+                     */
+
+                    def matcher =
+                        fileName =~ /^(.+)-([0-9][^-]*)-(.+)\.whl$/
 
 
-                    if (!match) {
+                    if (!matcher.matches()) {
 
                         error(
-                            "Unable to determine package/version from ${wheelName}"
+                            "Unable to determine Python package version from ${fileName}"
                         )
                     }
 
 
                     env.PYTHON_PACKAGE_NAME =
-                        match[0][1]
+                        matcher[0][1]
 
                     env.PYTHON_PACKAGE_VERSION =
-                        match[0][2]
-
-                    env.PYTHON_WHEEL =
-                        wheelName
+                        matcher[0][2]
 
 
                     echo """
@@ -828,12 +865,13 @@ PYTHON PACKAGE
 Package       : ${env.PYTHON_PACKAGE_NAME}
 Version       : ${env.PYTHON_PACKAGE_VERSION}
 
-Wheel         : dist/${env.PYTHON_WHEEL}
+Wheel         : ${fileName}
 
+JFrog Project : ${env.JFROG_PROJECT}
 Repository    : ${env.ARTIFACTORY_REPO}
 
 Artifact Path :
-${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
+${env.JFROG_ARTIFACT_PATH}
 
 ====================================================
 """
@@ -843,117 +881,450 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
 
 
         // =========================================================
-        // COLLECT JFROG BUILD INFORMATION
+        // SONARQUBE
         // =========================================================
 
-        stage('Collect JFrog Build Information') {
+        stage('SonarQube Analysis') {
 
             steps {
 
-                sh '''
-                    set -e
+                script {
 
-                    echo "======================================"
-                    echo "COLLECTING JFROG BUILD INFORMATION"
-                    echo "======================================"
+                    def scannerHome =
+                        tool 'SonarQubeLocal'
 
-                    jf rt build-collect-env \
-                        "${JFROG_CLI_BUILD_NAME}" \
-                        "${BUILD_NUMBER}"
 
-                    echo "JFrog environment collected."
-                '''
+                    withSonarQubeEnv(SONAR_SERVER) {
+
+                        withCredentials([
+
+                            string(
+                                credentialsId: SONAR_TOKEN_ID,
+                                variable: 'SONAR_TOKEN'
+                            )
+                        ]) {
+
+                            sh '''
+                                set -e
+
+                                echo "======================================"
+                                echo "SONARQUBE ANALYSIS"
+                                echo "======================================"
+
+                                "${SONAR_SCANNER_HOME}/bin/sonar-scanner" \
+                                    -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                                    -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
+                                    -Dsonar.projectVersion="${PYTHON_PACKAGE_VERSION}" \
+                                    -Dsonar.sources=. \
+                                    -Dsonar.sourceEncoding=UTF-8 \
+                                    -Dsonar.token="${SONAR_TOKEN}" \
+                                    -Dsonar.exclusions="**/.venv/**,**/.ci-venv/**,**/venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tests/**,**/dist/**,**/build/**,**/*.egg-info/**"
+
+                                echo "======================================"
+                                echo "SONARQUBE SCAN COMPLETED"
+                                echo "======================================"
+                            '''
+                        }
+                    }
+                }
             }
         }
 
 
         // =========================================================
-        // UPLOAD ARTIFACTS
-        // =========================================================
-        //
-        // SAME STORAGE MODEL AS REFERENCE:
-        //
-        // <PROJECT_NAME>-<ENVIRONMENT>/
-        //      <PROJECT_FOLDER>/
-        //          <BUILD_NUMBER>/
-        //              artifact
-        //
+        // QUALITY GATE
         // =========================================================
 
-        stage('Publish Package to JFrog') {
+        stage('SonarQube Quality Gate') {
 
             steps {
 
-                sh '''
-                    set -e
+                timeout(
+                    time: 10,
+                    unit: 'MINUTES'
+                ) {
 
-                    echo "======================================"
-                    echo "PUBLISHING PYTHON PACKAGE"
-                    echo "======================================"
+                    script {
 
-                    REPO="${ARTIFACTORY_REPO}"
-
-                    TARGET="${REPO}/${PROJECT_FOLDER}/${BUILD_NUMBER}/"
-
-                    echo "Repository : ${REPO}"
-                    echo "Build Name : ${PROJECT_FOLDER}"
-                    echo "Build No   : ${BUILD_NUMBER}"
-                    echo "Target     : ${TARGET}"
+                        def qg =
+                            waitForQualityGate(
+                                abortPipeline: false
+                            )
 
 
-                    for FILE in dist/*; do
-
-                        if [ -f "${FILE}" ]; then
-
-                            FILE_NAME=$(basename "${FILE}")
-
-                            echo "Uploading ${FILE_NAME}"
+                        echo "Quality Gate: ${qg.status}"
 
 
-                            jf rt upload \
-                                "${FILE}" \
-                                "${TARGET}${FILE_NAME}" \
-                                --flat=true \
-                                --build-name="${PROJECT_FOLDER}" \
-                                --build-number="${BUILD_NUMBER}"
+                        if (
+                            params.ENVIRONMENT == 'PROD' &&
+                            qg.status != 'OK'
+                        ) {
 
+                            error(
+                                "Quality Gate FAILED in PROD."
+                            )
+                        }
+
+
+                        if (
+                            params.ENVIRONMENT != 'PROD' &&
+                            qg.status != 'OK'
+                        ) {
+
+                            echo """
+Quality Gate failed.
+
+Environment is ${params.ENVIRONMENT}.
+
+Non-PROD pipeline will continue.
+"""
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // =========================================================
+        // CREATE / UPDATE JFROG PROJECT + REPOSITORY
+        // =========================================================
+
+        stage('Create/Update Artifactory Repository') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: JFROG_TOKEN_ID,
+                        variable: 'JFROG_TOKEN'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================="
+                        echo "ARTIFACTORY PROJECT / REPOSITORY"
+                        echo "======================================="
+
+
+                        /*
+                         * =================================================
+                         * CREATE ARTIFACTORY PROJECT
+                         * =================================================
+                         */
+
+                        cat > project.json <<EOF
+{
+    "project_key": "${JFROG_PROJECT}",
+    "display_name": "${PROJECT_NAME}",
+    "description": "Python project managed by Jenkins v2",
+    "admin_privileges": {
+        "manage_members": true,
+        "manage_resources": true,
+        "index_resources": true,
+        "manage_remote_repository": true,
+        "create_remote_repository": true,
+        "delete_remote_repository": true,
+        "create_local_repository": true,
+        "delete_local_repository": true,
+        "create_virtual_repository": true,
+        "delete_virtual_repository": true
+    }
+}
+EOF
+
+
+                        PROJECT_RESPONSE=$(curl \
+                            --silent \
+                            --show-error \
+                            --write-out "\\n%{http_code}" \
+                            --request POST \
+                            --url "${JFROG_PLATFORM_URL}/access/api/v1/projects" \
+                            --header "accept: application/json" \
+                            --header "content-type: application/json" \
+                            --header "Authorization: Bearer ${JFROG_TOKEN}" \
+                            --data @project.json)
+
+
+                        PROJECT_HTTP_CODE=$(echo "${PROJECT_RESPONSE}" | tail -n 1)
+
+                        PROJECT_BODY=$(echo "${PROJECT_RESPONSE}" | sed '$d')
+
+
+                        echo "Project HTTP Status: ${PROJECT_HTTP_CODE}"
+
+
+                        if [
+                            "${PROJECT_HTTP_CODE}" -ge 200
+                        ] && [
+                            "${PROJECT_HTTP_CODE}" -lt 300
+                        ]; then
+
+                            echo "PROJECT CREATED SUCCESSFULLY"
+
+
+                        elif [
+                            "${PROJECT_HTTP_CODE}" = "409"
+                        ]; then
+
+                            echo "PROJECT ALREADY EXISTS"
+
+                        else
+
+                            echo "FAILED TO CREATE PROJECT"
+
+                            echo "${PROJECT_BODY}"
+
+                            exit 1
 
                         fi
 
-                    done
+
+                        /*
+                         * =================================================
+                         * CREATE / UPDATE LOCAL PYTHON REPOSITORY
+                         * =================================================
+                         */
+
+                        cat > repo.json <<EOF
+{
+    "rclass": "local",
+    "packageType": "pypi",
+    "environments": [
+        "${ENVIRONMENT}"
+    ],
+    "xrayIndex": true
+}
+EOF
 
 
-                    echo "======================================"
-                    echo "PYTHON PACKAGE PUBLISHED"
-                    echo "======================================"
-                '''
+                        echo "Repository:"
+                        echo "${ARTIFACTORY_REPO}"
+
+
+                        jf rt curl \
+                            -XPUT \
+                            -H "Content-Type: application/json" \
+                            "/api/repositories/${ARTIFACTORY_REPO}" \
+                            -d @repo.json
+
+
+                        /*
+                         * =================================================
+                         * SHARE REPOSITORY WITH ARTIFACTORY PROJECT
+                         * =================================================
+                         */
+
+                        SHARE_RESPONSE=$(curl \
+                            --silent \
+                            --show-error \
+                            --write-out "\\n%{http_code}" \
+                            --request PUT \
+                            --url "${JFROG_PLATFORM_URL}/access/api/v1/projects/_/share/repositories/${ARTIFACTORY_REPO}/${JFROG_PROJECT}?readOnly=false" \
+                            --header "accept: application/json" \
+                            --header "Authorization: Bearer ${JFROG_TOKEN}" \
+                            || true)
+
+
+                        SHARE_HTTP_CODE=$(echo "${SHARE_RESPONSE}" | tail -n 1)
+
+
+                        echo "Share HTTP Status: ${SHARE_HTTP_CODE}"
+
+
+                        if [
+                            "${SHARE_HTTP_CODE}" = "204"
+                        ]; then
+
+                            echo "REPOSITORY SHARED SUCCESSFULLY"
+
+                        elif [
+                            "${SHARE_HTTP_CODE}" = "409"
+                        ]; then
+
+                            echo "REPOSITORY ALREADY SHARED"
+
+                        else
+
+                            echo "Repository sharing returned:"
+                            echo "${SHARE_RESPONSE}"
+
+                            echo "Continuing."
+
+                        fi
+
+
+                        echo "======================================="
+                        echo "ARTIFACTORY CONFIGURATION COMPLETED"
+                        echo "======================================="
+                    '''
+                }
             }
         }
 
 
         // =========================================================
-        // PUBLISH BUILD INFO
+        // PUBLISH ARTIFACT + BUILD INFO
         // =========================================================
 
-        stage('Publish JFrog Build Info') {
+        stage('Publish Artifact + Build Provenance') {
 
             steps {
 
-                sh '''
-                    set -e
+                withCredentials([
 
-                    echo "======================================"
-                    echo "PUBLISHING JFROG BUILD INFO"
-                    echo "======================================"
+                    string(
+                        credentialsId: JFROG_TOKEN_ID,
+                        variable: 'JFROG_TOKEN'
+                    )
+                ]) {
 
-                    jf rt build-publish \
-                        "${PROJECT_FOLDER}" \
-                        "${BUILD_NUMBER}"
+                    sh '''
+                        set -e
 
-                    echo "======================================"
-                    echo "BUILD INFO PUBLISHED"
-                    echo "======================================"
-                '''
+                        echo "======================================="
+                        echo "JFROG ARTIFACT PUBLICATION"
+                        echo "======================================="
+
+
+                        jf c rm artifactory --quiet || true
+
+
+                        jf c add artifactory \
+                            --url="${JFROG_URL}" \
+                            --access-token="${JFROG_TOKEN}" \
+                            --interactive=false \
+                            --overwrite=true
+
+
+                        jf c use artifactory
+
+
+                        /*
+                         * -------------------------------------------------
+                         * Collect environment
+                         *
+                         * IMPORTANT:
+                         * jf rt build-collect-env accepts exactly:
+                         *
+                         * build-name build-number
+                         *
+                         * No server-id argument.
+                         * -------------------------------------------------
+                         */
+
+                        jf rt build-collect-env \
+                            "${JFROG_BUILD_NAME}" \
+                            "${JFROG_BUILD_NUMBER}" \
+                            --project="${JFROG_PROJECT}"
+
+
+                        /*
+                         * -------------------------------------------------
+                         * Upload wheel
+                         * -------------------------------------------------
+                         */
+
+                        for file in dist/*.whl; do
+
+                            FILE_NAME=$(basename "${file}")
+
+                            MODULE_NAME="${PYTHON_PACKAGE_NAME}"
+
+
+                            echo "Uploading:"
+                            echo "${file}"
+
+
+                            jf rt upload \
+                                "${file}" \
+                                "${ARTIFACTORY_REPO}/${PROJECT_FOLDER}/${BUILD_NUMBER}/${FILE_NAME}" \
+                                --flat=true \
+                                --build-name="${JFROG_BUILD_NAME}" \
+                                --build-number="${JFROG_BUILD_NUMBER}" \
+                                --project="${JFROG_PROJECT}" \
+                                --module="${MODULE_NAME}" \
+                                --detailed-summary
+
+                        done
+
+
+                        /*
+                         * -------------------------------------------------
+                         * Upload source distribution
+                         * -------------------------------------------------
+                         */
+
+                        for file in dist/*.tar.gz; do
+
+                            if [ -f "${file}" ]; then
+
+                                FILE_NAME=$(basename "${file}")
+
+                                MODULE_NAME="${PYTHON_PACKAGE_NAME}"
+
+
+                                jf rt upload \
+                                    "${file}" \
+                                    "${ARTIFACTORY_REPO}/${PROJECT_FOLDER}/${BUILD_NUMBER}/${FILE_NAME}" \
+                                    --flat=true \
+                                    --build-name="${JFROG_BUILD_NAME}" \
+                                    --build-number="${JFROG_BUILD_NUMBER}" \
+                                    --project="${JFROG_PROJECT}" \
+                                    --module="${MODULE_NAME}" \
+                                    --detailed-summary
+
+                            fi
+
+                        done
+
+
+                        /*
+                         * -------------------------------------------------
+                         * Publish Build Info
+                         * -------------------------------------------------
+                         */
+
+                        jf rt build-publish \
+                            "${JFROG_BUILD_NAME}" \
+                            "${JFROG_BUILD_NUMBER}" \
+                            --project="${JFROG_PROJECT}" \
+                            --collect-env \
+                            --env-exclude "*password*;*secret*;*key*;*token*;*auth*" \
+                            --collect-git-info \
+                            --dot-git-path .
+
+
+                        echo "======================================="
+                        echo "BUILD INFO PUBLISHED"
+                        echo "======================================="
+
+
+                        jf bs \
+                            "${JFROG_BUILD_NAME}" \
+                            "${JFROG_BUILD_NUMBER}" \
+                            --project="${JFROG_PROJECT}" \
+                            --format=json \
+                            > xray-result.json || true
+
+
+                        echo "JFROG BUILD PUBLICATION COMPLETED"
+                    '''
+                }
+            }
+
+            post {
+
+                always {
+
+                    archiveArtifacts(
+                        artifacts: 'xray-result.json',
+                        allowEmptyArchive: true,
+                        fingerprint: true
+                    )
+                }
             }
         }
 
@@ -966,27 +1337,169 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
 
             steps {
 
-                sh '''
-                    set -e
+                withCredentials([
 
-                    echo "======================================"
-                    echo "XRAY BUILD SCAN"
-                    echo "======================================"
+                    string(
+                        credentialsId: JFROG_TOKEN_ID,
+                        variable: 'JFROG_TOKEN'
+                    )
+                ]) {
 
-                    jf bs \
-                        "${PROJECT_FOLDER}" \
-                        "${BUILD_NUMBER}"
+                    script {
 
-                    echo "======================================"
-                    echo "XRAY SCAN COMPLETED"
-                    echo "======================================"
-                '''
+                        sh '''
+                            set -e
+
+                            echo "======================================="
+                            echo "XRAY BUILD SCAN"
+                            echo "======================================="
+
+
+                            jf c rm artifactory --quiet || true
+
+
+                            jf c add artifactory \
+                                --url="${JFROG_URL}" \
+                                --access-token="${JFROG_TOKEN}" \
+                                --interactive=false \
+                                --overwrite=true
+
+
+                            jf c use artifactory
+
+
+                            jf bs \
+                                "${JFROG_BUILD_NAME}" \
+                                "${JFROG_BUILD_NUMBER}" \
+                                --project="${JFROG_PROJECT}" \
+                                --format=json \
+                                > xray-result.json
+
+
+                            echo "======================================="
+                            echo "XRAY RESULT"
+                            echo "======================================="
+
+                            cat xray-result.json || true
+                        '''
+
+
+                        def critical = sh(
+                            script: '''
+                                grep -o '"severity"[[:space:]]*:[[:space:]]*"Critical"' \
+                                    xray-result.json 2>/dev/null \
+                                    | wc -l
+                            ''',
+                            returnStdout: true
+                        ).trim().toInteger()
+
+
+                        def high = sh(
+                            script: '''
+                                grep -o '"severity"[[:space:]]*:[[:space:]]*"High"' \
+                                    xray-result.json 2>/dev/null \
+                                    | wc -l
+                            ''',
+                            returnStdout: true
+                        ).trim().toInteger()
+
+
+                        def medium = sh(
+                            script: '''
+                                grep -o '"severity"[[:space:]]*:[[:space:]]*"Medium"' \
+                                    xray-result.json 2>/dev/null \
+                                    | wc -l
+                            ''',
+                            returnStdout: true
+                        ).trim().toInteger()
+
+
+                        def low = sh(
+                            script: '''
+                                grep -o '"severity"[[:space:]]*:[[:space:]]*"Low"' \
+                                    xray-result.json 2>/dev/null \
+                                    | wc -l
+                            ''',
+                            returnStdout: true
+                        ).trim().toInteger()
+
+
+                        env.XRAY_CRITICAL = "${critical}"
+                        env.XRAY_HIGH = "${high}"
+                        env.XRAY_MEDIUM = "${medium}"
+                        env.XRAY_LOW = "${low}"
+
+
+                        env.XRAY_STATUS =
+                            (
+                                critical > 0 ||
+                                high > 0
+                            )
+                            ? 'FAILED'
+                            : 'PASSED'
+
+
+                        echo """
+=======================================
+XRAY SUMMARY
+=======================================
+
+Project : ${PROJECT_NAME}
+Build   : ${BUILD_NUMBER}
+
+Critical: ${critical}
+High    : ${high}
+Medium  : ${medium}
+Low     : ${low}
+
+Status  : ${env.XRAY_STATUS}
+
+=======================================
+"""
+
+
+                        if (
+                            critical > 0 ||
+                            high > 0
+                        ) {
+
+                            if (params.ENVIRONMENT == 'PROD') {
+
+                                error(
+                                    "PROD BLOCKED: Xray Critical/High findings detected."
+                                )
+
+                            } else {
+
+                                echo """
+NON-PROD ENVIRONMENT
+
+Critical/High findings detected.
+
+DEV deployment is allowed to continue.
+"""
+                            }
+                        }
+                    }
+                }
+            }
+
+            post {
+
+                always {
+
+                    archiveArtifacts(
+                        artifacts: 'xray-result.json',
+                        allowEmptyArchive: true,
+                        fingerprint: true
+                    )
+                }
             }
         }
 
 
         // =========================================================
-        // SBOM
+        // GENERATE SBOM
         // =========================================================
 
         stage('Generate SBOM') {
@@ -996,29 +1509,140 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
                 sh '''
                     set -e
 
-                    echo "======================================"
-                    echo "GENERATING SBOM"
-                    echo "======================================"
+                    echo "======================================="
+                    echo "GENERATING PYTHON SBOM"
+                    echo "======================================="
+
+
+                    rm -rf sbom
+
+                    mkdir -p sbom
+
 
                     PYTHON="${WORKSPACE}/${CI_VENV}/bin/python"
 
 
-                    "${PYTHON}" -m pip install \
-                        cyclonedx-bom
+                    /*
+                     * Generate a simple CycloneDX-style SBOM
+                     * from installed Python packages.
+                     *
+                     * We avoid requiring another external tool.
+                     */
+
+                    "${PYTHON}" -m pip list \
+                        --format=json \
+                        > sbom/pip-packages.json
 
 
-                    "${CI_VENV}/bin/cyclonedx-py" \
-                        environment \
-                        --output-format json \
-                        --output-file cyclonedx-sbom.json
+                    "${PYTHON}" - <<'PY'
+import json
+import uuid
+from pathlib import Path
+
+packages = json.loads(
+    Path("sbom/pip-packages.json").read_text()
+)
+
+components = []
+
+for package in packages:
+
+    name = package.get("name", "")
+    version = package.get("version", "")
+
+    if not name:
+        continue
+
+    components.append({
+        "type": "library",
+        "name": name,
+        "version": version,
+        "purl":
+            f"pkg:pypi/{name.lower()}@{version}"
+    })
 
 
-                    ls -lah cyclonedx-sbom.json
+bom = {
+    "bomFormat": "CycloneDX",
+    "specVersion": "1.6",
+    "serialNumber":
+        f"urn:uuid:{uuid.uuid4()}",
+    "version": 1,
+    "metadata": {
+        "component": {
+            "type": "application",
+            "name": "${PROJECT_NAME}",
+            "version": "${PYTHON_PACKAGE_VERSION}"
+        }
+    },
+    "components": components
+}
 
-                    echo "SBOM generated."
 
-                    echo "======================================"
+Path("sbom/cyclonedx-merged.json").write_text(
+    json.dumps(bom, indent=2)
+)
+
+print("CycloneDX SBOM generated.")
+PY
+
+
+                    echo "SBOM:"
+                    ls -lah sbom
                 '''
+            }
+        }
+
+
+        // =========================================================
+        // PUBLISH SBOM
+        // =========================================================
+
+        stage('Publish SBOM') {
+
+            steps {
+
+                withCredentials([
+
+                    string(
+                        credentialsId: JFROG_TOKEN_ID,
+                        variable: 'JFROG_TOKEN'
+                    )
+                ]) {
+
+                    sh '''
+                        set -e
+
+                        echo "======================================="
+                        echo "UPLOADING SBOM TO JFROG"
+                        echo "======================================="
+
+
+                        jf c rm artifactory --quiet || true
+
+
+                        jf c add artifactory \
+                            --url="${JFROG_URL}" \
+                            --access-token="${JFROG_TOKEN}" \
+                            --interactive=false \
+                            --overwrite=true
+
+
+                        jf c use artifactory
+
+
+                        jf rt upload \
+                            sbom/cyclonedx-merged.json \
+                            "${ARTIFACTORY_REPO}/${PROJECT_FOLDER}/${BUILD_NUMBER}/sbom/" \
+                            --flat=true \
+                            --build-name="${JFROG_BUILD_NAME}" \
+                            --build-number="${JFROG_BUILD_NUMBER}" \
+                            --project="${JFROG_PROJECT}"
+
+
+                        echo "SBOM uploaded successfully."
+                    '''
+                }
             }
 
             post {
@@ -1026,11 +1650,8 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
                 always {
 
                     archiveArtifacts(
-                        artifacts:
-                            'cyclonedx-sbom.json',
-
+                        artifacts: 'sbom/**',
                         allowEmptyArchive: true,
-
                         fingerprint: true
                     )
                 }
@@ -1039,87 +1660,79 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
 
 
         // =========================================================
-        // PUBLISH SBOM
-        // =========================================================
-        //
-        // SAME PATH MODEL:
-        //
-        // <REPO>/<PROJECT_FOLDER>/<BUILD_NUMBER>/sbom/
-        //
-        // =========================================================
-
-        stage('Publish SBOM') {
-
-            steps {
-
-                sh '''
-                    set -e
-
-                    echo "======================================"
-                    echo "PUBLISHING SBOM"
-                    echo "======================================"
-
-                    TARGET="${ARTIFACTORY_REPO}/${PROJECT_FOLDER}/${BUILD_NUMBER}/sbom/"
-
-                    jf rt upload \
-                        "cyclonedx-sbom.json" \
-                        "${TARGET}cyclonedx-sbom.json" \
-                        --flat=true
-
-                    echo "SBOM published."
-
-                    echo "======================================"
-                '''
-            }
-        }
-
-
-        // =========================================================
         // FINAL RELEASE
         // =========================================================
 
-        stage('Production Release') {
+        stage('Create Release Bundle + Promotion') {
 
             when {
 
                 expression {
-
-                    params.ENVIRONMENT == 'PROD' &&
                     params.IS_FINAL_RUN == 'true'
                 }
             }
 
             steps {
 
-                sh '''
-                    set -e
+                withCredentials([
 
-                    echo "======================================"
-                    echo "PRODUCTION RELEASE"
-                    echo "======================================"
+                    string(
+                        credentialsId: JFROG_TOKEN_ID,
+                        variable: 'JFROG_TOKEN'
+                    )
+                ]) {
 
-                    RB_NAME="${PROJECT_FOLDER}-rb"
+                    sh '''
+                        set -e
 
-                    RB_VERSION="${BUILD_NUMBER}"
-
-
-                    echo "Release Bundle : ${RB_NAME}"
-                    echo "Version        : ${RB_VERSION}"
-                    echo "Project        : ${JFROG_PROJECT_KEY}"
-
-
-                    jf rbc \
-                        "${RB_NAME}" \
-                        "${RB_VERSION}" \
-                        --build-name="${PROJECT_FOLDER}" \
-                        --build-number="${BUILD_NUMBER}" \
-                        --sync
+                        echo "======================================="
+                        echo "CREATING RELEASE BUNDLE"
+                        echo "======================================="
 
 
-                    echo "======================================"
-                    echo "RELEASE BUNDLE CREATED"
-                    echo "======================================"
-                '''
+                        jf c rm artifactory --quiet || true
+
+
+                        jf c add artifactory \
+                            --url="${JFROG_URL}" \
+                            --access-token="${JFROG_TOKEN}" \
+                            --interactive=false \
+                            --overwrite=true
+
+
+                        jf c use artifactory
+
+
+                        RB_NAME="${PROJECT_FOLDER}-rb"
+
+                        RB_VERSION="${BUILD_NUMBER}"
+
+
+                        echo "Release Bundle:"
+                        echo "${RB_NAME}/${RB_VERSION}"
+
+
+                        jf rbc \
+                            "${RB_NAME}" \
+                            "${RB_VERSION}" \
+                            --build-name="${JFROG_BUILD_NAME}" \
+                            --build-number="${BUILD_NUMBER}" \
+                            --project="${JFROG_PROJECT}" \
+                            --sync
+
+
+                        jf rbp \
+                            "${RB_NAME}" \
+                            "${RB_VERSION}" \
+                            "${ENVIRONMENT}" \
+                            --project="${JFROG_PROJECT}"
+
+
+                        echo "======================================="
+                        echo "RELEASE BUNDLE COMPLETED"
+                        echo "======================================="
+                    '''
+                }
             }
         }
     }
@@ -1135,55 +1748,224 @@ ${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
 
             script {
 
-                echo """
-====================================================
-PYTHON V2 PIPELINE SUCCESS
-====================================================
+                def recipients = [
+                    params.TO_EMAIL,
+                    params.MANAGER_EMAIL,
+                    params.PRIMARY_APPROVER_EMAIL
+                ]
+                .findAll {
+                    it?.trim()
+                }
+                .join(',')
 
-Project       : ${env.PROJECT_NAME}
-Build         : ${BUILD_NUMBER}
-Environment   : ${params.ENVIRONMENT}
 
-Package       : ${env.PYTHON_PACKAGE_NAME}
-Version       : ${env.PYTHON_PACKAGE_VERSION}
+                if (recipients?.trim()) {
 
-JFrog Repo    : ${env.ARTIFACTORY_REPO}
+                    mail(
+                        to: recipients,
+                        cc: params.CC_EMAIL ?: '',
+                        subject:
+                            "PIPELINE SUCCESS - ${env.PROJECT_NAME}",
+                        mimeType: 'text/html',
+                        body: """
+<h2 style="color:green;">
+PIPELINE SUCCESS
+</h2>
 
-Artifact Path :
-${env.ARTIFACTORY_REPO}/${env.PROJECT_FOLDER}/${BUILD_NUMBER}/
+<p>
+<b>Project:</b>
+${env.PROJECT_NAME}
+</p>
 
-====================================================
+<p>
+<b>Project URL:</b>
+${params.PROJECT_URL}
+</p>
+
+<p>
+<b>Environment:</b>
+${params.ENVIRONMENT}
+</p>
+
+<p>
+<b>Build:</b>
+${BUILD_NUMBER}
+</p>
+
+<p>
+<b>JFrog Project:</b>
+${env.JFROG_PROJECT}
+</p>
+
+<p>
+<b>JFrog Repository:</b>
+${env.ARTIFACTORY_REPO}
+</p>
+
+<p>
+<b>Artifact Path:</b>
+${env.JFROG_ARTIFACT_PATH}
+</p>
+
+<p>
+<b>Xray Status:</b>
+${env.XRAY_STATUS ?: 'NOT EXECUTED'}
+</p>
+
+<p>
+<a href="${BUILD_URL}">
+Open Jenkins Build
+</a>
+</p>
 """
+                    )
+                }
             }
         }
 
 
         failure {
 
-            echo """
-====================================================
-PYTHON V2 PIPELINE FAILED
-====================================================
+            script {
 
-Project     : ${env.PROJECT_NAME ?: 'Unknown'}
-Build       : ${BUILD_NUMBER}
-Environment : ${params.ENVIRONMENT}
+                def recipients = [
+                    params.TO_EMAIL,
+                    params.MANAGER_EMAIL,
+                    params.PRIMARY_APPROVER_EMAIL
+                ]
+                .findAll {
+                    it?.trim()
+                }
+                .join(',')
 
-Check the failed stage and Jenkins console.
 
-====================================================
+                if (recipients?.trim()) {
+
+                    mail(
+                        to: recipients,
+                        cc: params.CC_EMAIL ?: '',
+                        subject:
+                            "PIPELINE FAILED - ${env.PROJECT_NAME ?: 'Python Project'}",
+                        mimeType: 'text/html',
+                        body: """
+<h2 style="color:red;">
+PIPELINE FAILED
+</h2>
+
+<p>
+<b>Project:</b>
+${env.PROJECT_NAME ?: 'Unknown'}
+</p>
+
+<p>
+<b>Project URL:</b>
+${params.PROJECT_URL}
+</p>
+
+<p>
+<b>Environment:</b>
+${params.ENVIRONMENT}
+</p>
+
+<p>
+<b>Build:</b>
+${BUILD_NUMBER}
+</p>
+
+<p>
+<b>JFrog Repository:</b>
+${env.ARTIFACTORY_REPO ?: 'Not created'}
+</p>
+
+<p>
+<b>Xray Status:</b>
+${env.XRAY_STATUS ?: 'NOT EXECUTED'}
+</p>
+
+<p>
+Please check the Jenkins console for the failing stage.
+</p>
+
+<p>
+<a href="${BUILD_URL}">
+Open Jenkins Build
+</a>
+</p>
 """
+                    )
+                }
+            }
+        }
+
+
+        aborted {
+
+            script {
+
+                def recipients = [
+                    params.TO_EMAIL,
+                    params.MANAGER_EMAIL,
+                    params.PRIMARY_APPROVER_EMAIL
+                ]
+                .findAll {
+                    it?.trim()
+                }
+                .join(',')
+
+
+                if (recipients?.trim()) {
+
+                    mail(
+                        to: recipients,
+                        cc: params.CC_EMAIL ?: '',
+                        subject:
+                            "PIPELINE ABORTED - ${env.PROJECT_NAME ?: 'Python Project'}",
+                        mimeType: 'text/html',
+                        body: """
+<h2 style="color:orange;">
+PIPELINE ABORTED
+</h2>
+
+<p>
+<b>Project:</b>
+${env.PROJECT_NAME ?: 'Unknown'}
+</p>
+
+<p>
+<b>Environment:</b>
+${params.ENVIRONMENT}
+</p>
+
+<p>
+<b>Build:</b>
+${BUILD_NUMBER}
+</p>
+
+<p>
+Pipeline was stopped or timed out.
+</p>
+
+<p>
+<a href="${BUILD_URL}">
+Open Jenkins Build
+</a>
+</p>
+"""
+                    )
+                }
+            }
         }
 
 
         always {
 
             sh '''
-                rm -rf "${CI_VENV}" || true
-                rm -rf .pytest_cache || true
+                rm -rf .ci-venv || true
                 rm -rf __pycache__ || true
+                rm -rf .pytest_cache || true
                 rm -rf build || true
                 rm -rf *.egg-info || true
+                rm -f project.json repo.json || true
             '''
         }
     }
