@@ -1,19 +1,23 @@
 pipelineJob('python-app-v2-without-sonar') {
 
     description('''
-        Python V2 CI/CD Pipeline without SonarQube.
+        Enterprise Python V2 CI/CD Pipeline without SonarQube.
 
-        Uses JFrog Cloud for dependency resolution,
-        artifact publishing, Build Info and Xray.
+        Pipeline flow:
+
+        GitHub
+          -> Python environment
+          -> JFrog dependency resolution
+          -> Unit tests + coverage
+          -> Python package build
+          -> JFrog Build Info
+          -> JFrog publish
+          -> Xray
+          -> SBOM
+          -> DEV / PROD release
     ''')
 
     parameters {
-
-        stringParam(
-            'PROJECT_URL',
-            '',
-            'Git URL of the Python application'
-        )
 
         choiceParam(
             'ENVIRONMENT',
@@ -21,7 +25,7 @@ pipelineJob('python-app-v2-without-sonar') {
                 'DEV',
                 'PROD'
             ],
-            'Target environment'
+            'Target deployment environment'
         )
 
         choiceParam(
@@ -30,31 +34,19 @@ pipelineJob('python-app-v2-without-sonar') {
                 'false',
                 'true'
             ],
-            'Set true only for final PROD release'
+            'Select true only for the final PROD release'
         )
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
-            'Required for PROD final run'
+            'Primary PROD approval email address'
         )
 
         stringParam(
             'MANAGER_EMAIL',
             '',
-            'Manager notification email'
-        )
-
-        stringParam(
-            'TO_EMAIL',
-            '',
-            'Pipeline notification recipients'
-        )
-
-        stringParam(
-            'CC_EMAIL',
-            '',
-            'CC notification recipients'
+            'Manager notification email address'
         )
     }
 
@@ -72,12 +64,14 @@ pipelineJob('python-app-v2-without-sonar') {
                         )
                     }
 
-                    branch('template')
+                    // KEEP THIS EXACTLY AS THE WORKING VERSION
+                    branch('*/template')
                 }
             }
 
+            // ONLY THIS PATH CHANGES FOR V2
             scriptPath(
-                'python-no-sonar-template/Jenkinsfile'
+                'python-no-sonar-template-v2/Jenkinsfile'
             )
 
             lightweight(true)
