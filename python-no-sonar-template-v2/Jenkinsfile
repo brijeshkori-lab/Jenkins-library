@@ -143,84 +143,154 @@ IS_FINAL_RUN=true is only allowed for PROD.
         // INITIALIZE PROJECT
         // =========================================================
 
-        stage('Initialize') {
+stage('Initialize') {
 
-            steps {
+    steps {
 
-                script {
+        script {
 
-                    def cleanUrl =
-                        params.PROJECT_URL
-                            .trim()
-                            .replaceAll(/\/$/, '')
-                            .replaceAll(/\.git$/, '')
+            if (!params.PROJECT_URL?.trim()) {
 
-                    def projectName =
-                        cleanUrl.tokenize('/')[-1]
-
-                    if (!projectName?.trim()) {
-
-                        error(
-                            'Unable to derive project name from PROJECT_URL'
-                        )
-                    }
-
-                    /*
-                     * Python project
-                     *
-                     * example:
-                     *
-                     * python-app-template
-                     */
-
-                    env.PROJECT_NAME = projectName
-
-                    /*
-                     * Reference terminology:
-                     *
-                     * PROJECT_FOLDER = application/build-info name
-                     */
-
-                    env.PROJECT_FOLDER = projectName
-
-                    /*
-                     * JFrog project key
-                     *
-                     * python-app-template
-                     *        ↓
-                     * pythonapptemplate
-                     */
-
-                    env.JFROG_PROJECT_KEY =
-                        projectName
-                            .toLowerCase()
-                            .replaceAll('[^a-z0-9]', '')
-
-                    /*
-                     * IMPORTANT:
-                     *
-                     * This matches the Java reference:
-                     *
-                     * <PROJECT_NAME>-<ENVIRONMENT>
-                     */
-
-                    env.ARTIFACTORY_REPO =
-                        "${env.PROJECT_NAME}-${params.ENVIRONMENT}"
-
-                    /*
-                     * Build name is the project folder.
-                     */
-
-                    env.JFROG_CLI_BUILD_NAME =
-                        env.PROJECT_FOLDER
-
-
-                    echo """
+                error("""
 ====================================================
-PYTHON V2 INITIALIZATION
+PROJECT URL IS REQUIRED
+====================================================
+
+PROJECT_URL was not provided.
+
+Example:
+
+https://github.com/brijeshkori-lab/python-app-template
+
+Please provide the application Git repository URL
+when starting the pipeline.
+
+====================================================
+""")
+            }
+
+
+            def cleanUrl =
+                params.PROJECT_URL
+                    .trim()
+                    .replaceAll(/\/+$/, '')
+                    .replaceAll(/\.git$/, '')
+
+
+            def urlParts =
+                cleanUrl
+                    .tokenize('/')
+
+
+            if (urlParts.isEmpty()) {
+
+                error("""
+====================================================
+INVALID PROJECT URL
+====================================================
+
+PROJECT_URL:
+
+${params.PROJECT_URL}
+
+Unable to derive project name.
+
+====================================================
+""")
+            }
+
+
+            def projectName =
+                urlParts[-1]
+
+
+            if (!projectName?.trim()) {
+
+                error("""
+====================================================
+INVALID PROJECT URL
+====================================================
+
+PROJECT_URL:
+
+${params.PROJECT_URL}
+
+Unable to determine project name.
+
+====================================================
+""")
+            }
+
+
+            /*
+             * Application/project name.
+             *
+             * Example:
+             *
+             * https://github.com/brijeshkori-lab/python-app-template
+             *
+             * becomes:
+             *
+             * python-app-template
+             */
+
+            env.PROJECT_NAME =
+                projectName
+
+
+            /*
+             * Same concept as the Java reference.
+             */
+
+            env.PROJECT_FOLDER =
+                projectName
+
+
+            /*
+             * JFrog project key.
+             *
+             * Example:
+             *
+             * python-app-template
+             *
+             * becomes:
+             *
+             * pythonapptemplate
+             */
+
+            env.JFROG_PROJECT_KEY =
+                projectName
+                    .toLowerCase()
+                    .replaceAll('[^a-z0-9]', '')
+
+
+            /*
+             * IMPORTANT:
+             *
+             * Same JFrog repository model as reference:
+             *
+             * <PROJECT_NAME>-<ENVIRONMENT>
+             */
+
+            env.ARTIFACTORY_REPO =
+                "${env.PROJECT_NAME}-${params.ENVIRONMENT}"
+
+
+            /*
+             * JFrog Build Info name.
+             */
+
+            env.JFROG_CLI_BUILD_NAME =
+                env.PROJECT_FOLDER
+
+
+            echo """
+====================================================
+PYTHON V2 PROJECT INITIALIZATION
 ====================================================
 
 Project URL       : ${params.PROJECT_URL}
+
 Project Name      : ${env.PROJECT_NAME}
 Project Folder    : ${env.PROJECT_FOLDER}
 
@@ -230,16 +300,16 @@ Final Run         : ${params.IS_FINAL_RUN}
 JFrog Project     : ${env.JFROG_PROJECT_KEY}
 JFrog Repository  : ${env.ARTIFACTORY_REPO}
 
-Build Name        : ${env.JFROG_CLI_BUILD_NAME}
-Build Number      : ${BUILD_NUMBER}
+JFrog Build Name  : ${env.JFROG_CLI_BUILD_NAME}
+Jenkins Build     : ${BUILD_NUMBER}
 
 Dependency Repo   : ${env.JFROG_VIRTUAL_REPO}
 
 ====================================================
 """
-                }
-            }
         }
+    }
+}
 
 
         // =========================================================

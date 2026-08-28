@@ -5,7 +5,7 @@ pipelineJob('python-app-v2-without-sonar') {
 
         Pipeline flow:
 
-        GitHub
+        Application Git
           -> Python environment
           -> JFrog dependency resolution
           -> Unit tests + coverage
@@ -18,6 +18,20 @@ pipelineJob('python-app-v2-without-sonar') {
     ''')
 
     parameters {
+
+        /*
+         * Application repository.
+         *
+         * This is NOT the Jenkins-library repository.
+         *
+         * Example:
+         * https://github.com/brijeshkori-lab/python-app-template
+         */
+        stringParam(
+            'PROJECT_URL',
+            '',
+            'Git URL of the Python application'
+        )
 
         choiceParam(
             'ENVIRONMENT',
@@ -64,12 +78,18 @@ pipelineJob('python-app-v2-without-sonar') {
                         )
                     }
 
-                    // KEEP THIS EXACTLY AS THE WORKING VERSION
+                    /*
+                     * This is the TEMPLATE repository branch.
+                     *
+                     * Keep this exactly as it is.
+                     */
                     branch('*/template')
                 }
             }
 
-            // ONLY THIS PATH CHANGES FOR V2
+            /*
+             * This is the V2 Jenkinsfile inside Jenkins-library.
+             */
             scriptPath(
                 'python-no-sonar-template-v2/Jenkinsfile'
             )
