@@ -1,7 +1,7 @@
 pipelineJob('python-app-v2-with-sonar') {
 
     description('''
-        Python V2 Enterprise CI/CD Pipeline.
+        Enterprise Python V2 CI/CD Pipeline with SonarQube.
 
         Pipeline:
 
@@ -12,12 +12,11 @@ pipelineJob('python-app-v2-with-sonar') {
           -> Python Package Build
           -> SonarQube
           -> Quality Gate
-          -> Artifactory Project / Repository
-          -> JFrog Build Info
-          -> Artifact Publication
+          -> JFrog Build Information
+          -> DEV / PROD Repository Publication
           -> Xray
           -> SBOM
-          -> DEV / PROD Release
+          -> PROD Approval / Release
     ''')
 
 
@@ -29,6 +28,7 @@ pipelineJob('python-app-v2-with-sonar') {
             'GitHub repository URL of the Python application'
         )
 
+
         choiceParam(
             'ENVIRONMENT',
             [
@@ -37,6 +37,7 @@ pipelineJob('python-app-v2-with-sonar') {
             ],
             'Target deployment environment'
         )
+
 
         choiceParam(
             'IS_FINAL_RUN',
@@ -47,28 +48,18 @@ pipelineJob('python-app-v2-with-sonar') {
             'Select true only for the final PROD release'
         )
 
+
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
             'Primary PROD approval email address'
         )
 
+
         stringParam(
             'MANAGER_EMAIL',
             '',
             'Manager notification email address'
-        )
-
-        stringParam(
-            'TO_EMAIL',
-            '',
-            'Pipeline notification recipients'
-        )
-
-        stringParam(
-            'CC_EMAIL',
-            '',
-            'Pipeline notification CC recipients'
         )
     }
 
@@ -92,11 +83,9 @@ pipelineJob('python-app-v2-with-sonar') {
                 }
             }
 
-
             scriptPath(
-                'python-no-sonar-template-v2/Jenkinsfile'
+                'python-v2-template/Jenkinsfile'
             )
-
 
             lightweight(true)
         }
