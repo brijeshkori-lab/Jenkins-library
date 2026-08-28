@@ -1,30 +1,23 @@
-pipelineJob('python-app-without-sonar-v2') {
+pipelineJob('python-app-v2-without-sonar') {
 
     description('''
-        Python CI/CD Pipeline without SonarQube.
+        Python V2 CI/CD Pipeline without SonarQube.
 
-        Supports multiple Python projects through PROJECT_URL.
+        The pipeline follows the enterprise Java reference
+        architecture for JFrog artifact storage, Build Info,
+        Xray and production release handling.
 
-        Pipeline:
+        Python dependencies:
+            python-virtual
 
-        GitHub
-          -> Python environment
-          -> JFrog dependency resolution
-          -> Unit tests + coverage
-          -> Python package build
-          -> JFrog Build Info
-          -> JFrog publish
-          -> Xray
-          -> SBOM
-          -> DEV / PROD release
+        Application artifacts:
+            <PROJECT_NAME>-<ENVIRONMENT>/
+                <PROJECT_FOLDER>/
+                    <BUILD_NUMBER>/
     ''')
 
 
     parameters {
-
-        // =========================================================
-        // APPLICATION
-        // =========================================================
 
         stringParam(
             'PROJECT_URL',
@@ -33,36 +26,15 @@ pipelineJob('python-app-without-sonar-v2') {
         )
 
 
-        // =========================================================
-        // PYTHON VERSION
-        // =========================================================
-
-        choiceParam(
-            'PYTHON_VERSION',
-            [
-                '3.13'
-            ],
-            'Python version to use for this build'
-        )
-
-
-        // =========================================================
-        // ENVIRONMENT
-        // =========================================================
-
         choiceParam(
             'ENVIRONMENT',
             [
                 'DEV',
                 'PROD'
             ],
-            'Target deployment environment'
+            'Target environment'
         )
 
-
-        // =========================================================
-        // FINAL RUN
-        // =========================================================
 
         choiceParam(
             'IS_FINAL_RUN',
@@ -70,25 +42,35 @@ pipelineJob('python-app-without-sonar-v2') {
                 'false',
                 'true'
             ],
-            'Set true only for the final PROD release'
+            'Set true only for final PROD release'
         )
 
-
-        // =========================================================
-        // PROD APPROVAL
-        // =========================================================
 
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
-            'Primary PROD approval email address'
+            'Required for PROD final run'
         )
 
 
         stringParam(
             'MANAGER_EMAIL',
             '',
-            'Manager notification email address'
+            'Manager notification email'
+        )
+
+
+        stringParam(
+            'TO_EMAIL',
+            '',
+            'Pipeline notification recipients'
+        )
+
+
+        stringParam(
+            'CC_EMAIL',
+            '',
+            'CC notification recipients'
         )
     }
 
