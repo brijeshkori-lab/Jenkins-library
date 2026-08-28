@@ -94,7 +94,7 @@ pipelineJob('python-app-v2-with-sonar') {
 
 
             scriptPath(
-                'python-v2-template/Jenkinsfile'
+                'python-no-sonar-template-v2/Jenkinsfile'
             )
 
 
