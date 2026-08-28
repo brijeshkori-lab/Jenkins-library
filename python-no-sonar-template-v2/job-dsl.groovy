@@ -3,19 +3,9 @@ pipelineJob('python-app-v2-without-sonar') {
     description('''
         Python V2 CI/CD Pipeline without SonarQube.
 
-        The pipeline follows the enterprise Java reference
-        architecture for JFrog artifact storage, Build Info,
-        Xray and production release handling.
-
-        Python dependencies:
-            python-virtual
-
-        Application artifacts:
-            <PROJECT_NAME>-<ENVIRONMENT>/
-                <PROJECT_FOLDER>/
-                    <BUILD_NUMBER>/
+        Uses JFrog Cloud for dependency resolution,
+        artifact publishing, Build Info and Xray.
     ''')
-
 
     parameters {
 
@@ -24,7 +14,6 @@ pipelineJob('python-app-v2-without-sonar') {
             '',
             'Git URL of the Python application'
         )
-
 
         choiceParam(
             'ENVIRONMENT',
@@ -35,7 +24,6 @@ pipelineJob('python-app-v2-without-sonar') {
             'Target environment'
         )
 
-
         choiceParam(
             'IS_FINAL_RUN',
             [
@@ -45,13 +33,11 @@ pipelineJob('python-app-v2-without-sonar') {
             'Set true only for final PROD release'
         )
 
-
         stringParam(
             'PRIMARY_APPROVER_EMAIL',
             '',
             'Required for PROD final run'
         )
-
 
         stringParam(
             'MANAGER_EMAIL',
@@ -59,13 +45,11 @@ pipelineJob('python-app-v2-without-sonar') {
             'Manager notification email'
         )
 
-
         stringParam(
             'TO_EMAIL',
             '',
             'Pipeline notification recipients'
         )
-
 
         stringParam(
             'CC_EMAIL',
@@ -73,7 +57,6 @@ pipelineJob('python-app-v2-without-sonar') {
             'CC notification recipients'
         )
     }
-
 
     definition {
 
@@ -84,21 +67,18 @@ pipelineJob('python-app-v2-without-sonar') {
                 git {
 
                     remote {
-
                         url(
                             'https://github.com/brijeshkori-lab/Jenkins-library.git'
                         )
                     }
 
-                    branch('*/template')
+                    branch('template')
                 }
             }
 
-
             scriptPath(
-                'python-no-sonar-template-v2/Jenkinsfile'
+                'python-no-sonar-template/Jenkinsfile'
             )
-
 
             lightweight(true)
         }
